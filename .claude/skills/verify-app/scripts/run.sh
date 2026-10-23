@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# verify-app runner: Launch → Doctor → Drive → Evidence → Cleanup for the static site.
+# verify-app runner: Build → Launch → Doctor → Drive → Evidence → Cleanup for the Next.js
+# static export, served under /about-me/ exactly as GitHub Pages serves it.
 #
 # Usage (from anywhere inside the repo):
 #   .claude/skills/verify-app/scripts/run.sh all        # the full loop, always cleans up
-#   .claude/skills/verify-app/scripts/run.sh launch|doctor|drive|cleanup
+#   .claude/skills/verify-app/scripts/run.sh build|launch|doctor|drive|cleanup
 #
-# State lives in .fredrin/tmp/: verify-app.pid, verify-app.port, verify-app.evidence.
+# State lives in .fredrin/tmp/: verify-app.pid, verify-app.port, verify-app.evidence, and the
+# staged copy of out/ in site/about-me/.
 set -uo pipefail
 
 ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
@@ -14,6 +16,8 @@ TMP="$ROOT/.fredrin/tmp"
 PID_FILE="$TMP/verify-app.pid"
 PORT_FILE="$TMP/verify-app.port"
 EVIDENCE_FILE="$TMP/verify-app.evidence"
+SITE="$TMP/site"
+BASE_PATH="/about-me/"
 mkdir -p "$TMP"
 
 port_busy() { lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; }
@@ -41,6 +45,24 @@ find_chrome() {
   command -v google-chrome || command -v chromium || command -v chromium-browser || true
 }
 
+build() {
+  echo "== Build"
+  if [ ! -d "$ROOT/node_modules" ]; then
+    (cd "$ROOT" && npm ci --no-audit --no-fund) || { echo "FAIL  npm ci"; return 1; }
+  fi
+  (cd "$ROOT" && npm run build) >"$TMP/verify-app.build.log" 2>&1 || {
+    tail -30 "$TMP/verify-app.build.log"
+    echo "FAIL  npm run build — see $TMP/verify-app.build.log"
+    return 1
+  }
+  [ -f "$ROOT/out/index.html" ] || { echo "FAIL  out/index.html missing after the build"; return 1; }
+  # Pages serves the export under /about-me/, so stage it one level down and serve the parent.
+  rm -rf "$SITE"
+  mkdir -p "$SITE$BASE_PATH"
+  cp -R "$ROOT/out/." "$SITE$BASE_PATH"
+  echo "PASS  npm run build → out/, staged at $SITE$BASE_PATH"
+}
+
 launch() {
   if our_server_alive; then
     echo "FAIL  already launched (pid $(cat "$PID_FILE"), port $(cat "$PORT_FILE" 2>/dev/null)) — run cleanup first"
@@ -49,13 +71,14 @@ launch() {
   local port=8765
   while port_busy "$port"; do port=$((port + 1)); done
   [ "$port" != 8765 ] && echo "NOTE  port 8765 is busy — using $port instead"
-  (cd "$ROOT" && exec python3 -m http.server "$port" --bind 127.0.0.1 >"$TMP/verify-app.server.log" 2>&1) &
+  [ -f "$SITE$BASE_PATH/index.html" ] || { echo "FAIL  nothing staged — run build first"; return 1; }
+  (cd "$SITE" && exec python3 -m http.server "$port" --bind 127.0.0.1 >"$TMP/verify-app.server.log" 2>&1) &
   echo $! >"$PID_FILE"
   disown
   echo "$port" >"$PORT_FILE"
   for _ in $(seq 1 20); do
-    if curl -sf "http://127.0.0.1:$port/" | grep -q 'Ayoub Lkebch'; then
-      echo "PASS  launched http.server pid $(cat "$PID_FILE") on http://127.0.0.1:$port/ (page serves 'Ayoub Lkebch')"
+    if curl -sf "http://127.0.0.1:$port$BASE_PATH" | grep -q 'Ayoub Lkebch'; then
+      echo "PASS  launched http.server pid $(cat "$PID_FILE") on http://127.0.0.1:$port$BASE_PATH (page serves 'Ayoub Lkebch')"
       return 0
     fi
     sleep 0.5
@@ -66,12 +89,15 @@ launch() {
 
 doctor() {
   echo "== Doctor"
-  python3 "$SKILL/scripts/doctor.py" "$ROOT"
+  # With a live server it also fetches every referenced asset over HTTP.
+  local served=()
+  if our_server_alive; then served=(--served "http://127.0.0.1:$(cat "$PORT_FILE")"); fi
+  python3 "$SKILL/scripts/doctor.py" "$ROOT" "${served[@]+"${served[@]}"}"
 }
 
 drive() {
   local port; port="$(cat "$PORT_FILE" 2>/dev/null)" || { echo "FAIL  not launched"; return 1; }
-  local url="http://127.0.0.1:$port/"
+  local url="http://127.0.0.1:$port$BASE_PATH"
   local out="$TMP/verify-app/$(date +%Y%m%d-%H%M%S)"
   mkdir -p "$out"
   echo "$out" >"$EVIDENCE_FILE"
@@ -109,13 +135,13 @@ drive() {
     echo "NOTE  node 22+ not found — phone view uses the iframe wrapper; keyboard (first Tab) NOT verified"
     echo "NOT VERIFIED — needs node 22+ for the real Tab key press" >"$out/keyboard-check.txt"
     how="$how; phone via 390px iframe in a 500px window, light and dark; keyboard not checked (no node 22+)"
-    local frame_dir="$TMP/verify-app-frame"
+    local frame_dir="$SITE/verify-app-frame"
     mkdir -p "$frame_dir"
     cat >"$frame_dir/phone.html" <<EOF
 <!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0}iframe{border:0;width:390px;height:2400px;display:block}</style></head>
 <body><iframe src="$url" title="phone viewport"></iframe></body></html>
 EOF
-    local phone_url="http://127.0.0.1:$port/.fredrin/tmp/verify-app-frame/phone.html"
+    local phone_url="http://127.0.0.1:$port/verify-app-frame/phone.html"
     with_timeout 60 "$chrome" "${headless[@]}" --window-size=500,2400 --virtual-time-budget=3000 \
       --screenshot="$out/phone-light.png" "$phone_url" 2>/dev/null
     with_timeout 60 "$chrome" "${headless[@]}" --force-dark-mode --window-size=500,2400 --virtual-time-budget=3000 \
@@ -124,7 +150,7 @@ EOF
   for f in dom.html dom-dark.html desktop-light.png desktop-dark.png phone-light.png phone-dark.png; do
     expect_file "$out/$f" || status=1
   done
-  write_summary "$out" "served the repo with python3 http.server and loaded $url in $how"
+  write_summary "$out" "built the static export (npm run build), served it under $BASE_PATH with python3 http.server and loaded $url in $how"
   ls -1 "$out"
   return $status
 }
@@ -141,7 +167,7 @@ write_summary() {
 - **Action:** $action.
 - **State:** $(grep -c '^PASS' "$out/content-check.txt") content checks passed, $(grep -c '^FAIL' "$out/content-check.txt") failed; $(basename "$dom") holds \`.project\` × $projects and \`.contact-link\` × $links.
 - **Keyboard:** $(cat "$out/keyboard-check.txt" 2>/dev/null || echo "not run")
-- **Side effects:** none expected (static site; no requests leave the machine except the optional W3C checker POST in Doctor).
+- **Side effects:** \`out/\` rebuilt and staged into \`.fredrin/tmp/site/about-me/\`; nothing else written outside \`.fredrin/tmp/\`. No requests leave the machine except the optional W3C checker POST in Doctor.
 EOF
 }
 
@@ -161,20 +187,22 @@ cleanup() {
 }
 
 case "${1:-all}" in
+  build) build ;;
   launch) launch ;;
   doctor) doctor ;;
   drive) drive ;;
   cleanup) cleanup ;;
   all)
     rc=0
-    doctor || rc=1
     # Refuse (and leave the earlier server alone) when a launch is already live.
     our_server_alive && { launch; exit 1; }
+    build || exit 1
     trap cleanup EXIT
     launch || exit 1
+    doctor || rc=1
     drive || rc=1
     echo "== Result: $([ $rc = 0 ] && echo PASS || echo FAIL)"
     exit $rc
     ;;
-  *) echo "usage: $0 all|launch|doctor|drive|cleanup" >&2; exit 2 ;;
+  *) echo "usage: $0 all|build|launch|doctor|drive|cleanup" >&2; exit 2 ;;
 esac

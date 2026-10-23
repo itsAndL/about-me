@@ -1,7 +1,8 @@
 # Feature: contact
 
 `section.contact[aria-labelledby="contact-heading"]` with `<h2 id="contact-heading">Contact</h2>`
-and a `<ul>` of four `a.contact-link`, in this order.
+and a `<ul>` of four `a.contact-link`, in this order. Source: the `contactLinks` array in
+`app/content.ts`, rendered by `app/page.tsx`.
 
 ## Selectors
 

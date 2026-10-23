@@ -1,5 +1,7 @@
 # Feature: footer
 
+Source: `app/page.tsx` (the source URL is `sourceUrl` in `app/content.ts`).
+
 ## Selectors
 
 | Selector | Expected |

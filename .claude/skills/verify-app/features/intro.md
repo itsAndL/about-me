@@ -1,12 +1,13 @@
 # Feature: intro
 
-Header and introduction at the top of the page.
+Header and introduction at the top of the page. Source: skip link in `app/layout.tsx`, the
+rest in `app/page.tsx`.
 
 ## Selectors
 
 | Selector | Expected |
 |---|---|
-| `a.visually-hidden-focusable` (first element in `body`) | `Skip to content`, `href="#main"`; hidden until focused |
+| `a.visually-hidden-focusable` (first visible element in `body`; Next's `<div hidden>` precedes it) | `Skip to content`, `href="#main"`; hidden until focused |
 | `header.site-header .monogram` | `AL` — plain text, not a link (the styling ticket adds the theme toggle beside it) |
 | `main#main .intro h1` | `Ayoub Lkebch` |
 | `.intro .lede` | `Full-stack product engineer. I build software for businesses — <strong>4 B2B products shipped</strong>, now building <strong>Opilote</strong>.` |
@@ -17,5 +18,5 @@ Header and introduction at the top of the page.
 
 ```sh
 python3 .claude/skills/verify-app/scripts/check_content.py <evidence>/dom.html intro
-node .claude/skills/verify-app/scripts/cdp.mjs tab "<chrome>" http://127.0.0.1:8765/ <evidence>   # skip link on first Tab
+node .claude/skills/verify-app/scripts/cdp.mjs tab "<chrome>" http://127.0.0.1:8765/about-me/ <evidence>   # skip link on first Tab
 ```
