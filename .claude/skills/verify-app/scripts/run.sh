@@ -47,7 +47,12 @@ find_chrome() {
 
 build() {
   echo "== Build"
-  if [ ! -d "$ROOT/node_modules" ]; then
+  if our_server_alive; then
+    echo "FAIL  a launched server is serving $SITE — run cleanup before rebuilding"
+    return 2
+  fi
+  # Reinstall when node_modules is missing or older than the lockfile.
+  if [ ! -f "$ROOT/node_modules/.package-lock.json" ] || [ "$ROOT/package-lock.json" -nt "$ROOT/node_modules/.package-lock.json" ]; then
     (cd "$ROOT" && npm ci --no-audit --no-fund) || { echo "FAIL  npm ci"; return 1; }
   fi
   (cd "$ROOT" && npm run build) >"$TMP/verify-app.build.log" 2>&1 || {
@@ -77,6 +82,12 @@ launch() {
   disown
   echo "$port" >"$PORT_FILE"
   for _ in $(seq 1 20); do
+    # A server that died (e.g. lost a port race) must not pass on someone else's server.
+    if ! kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+      echo "FAIL  http.server exited — see $TMP/verify-app.server.log"
+      rm -f "$PID_FILE" "$PORT_FILE"
+      return 1
+    fi
     if curl -sf "http://127.0.0.1:$port$BASE_PATH" | grep -q 'Ayoub Lkebch'; then
       echo "PASS  launched http.server pid $(cat "$PID_FILE") on http://127.0.0.1:$port$BASE_PATH (page serves 'Ayoub Lkebch')"
       return 0

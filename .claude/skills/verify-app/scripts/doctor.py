@@ -111,6 +111,8 @@ def main():
     served = None
     if "--served" in args:
         i = args.index("--served")
+        if i + 1 >= len(args):
+            sys.exit("usage: doctor.py [repo_root] [--served http://127.0.0.1:<port>]")
         served = args[i + 1].rstrip("/")
         del args[i:i + 2]
     root = os.path.abspath(args[0] if args else ".")

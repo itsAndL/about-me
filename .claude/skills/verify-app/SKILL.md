@@ -26,7 +26,7 @@ always finish with `run.sh all`.
 
 ## Build
 
-1. `npm ci` when `node_modules/` is missing, then `npm run build` (log:
+1. `npm ci` when `node_modules/` is missing or older than `package-lock.json`, then `npm run build` (log:
    `.fredrin/tmp/verify-app.build.log`). Fails if `out/index.html` is missing afterwards.
 2. Copies `out/` to `.fredrin/tmp/site/about-me/`, so serving `.fredrin/tmp/site/` mirrors the
    Pages sub-path: root-absolute `/…` URLs that forgot the base path 404 here just as they do live.
