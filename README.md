@@ -29,7 +29,13 @@ Checks: `npx tsc --noEmit` and `npm run lint`.
 
 Every push to `main` publishes the site to https://itsandl.github.io/about-me/ through the **Deploy to GitHub Pages** workflow (`.github/workflows/pages.yml`). It can also be run by hand from the Actions tab (`workflow_dispatch`).
 
-The workflow installs dependencies with `npm ci`, runs `npm run build`, then uploads `out/` and deploys it with GitHub's official Pages actions. Only the built export is published, never the repo source. No secrets are needed.
+The workflow installs dependencies with `npm ci` (npm cache on), runs `npm run build`, smoke-tests the export, then uploads `out/` and deploys it with GitHub's official Pages actions. The smoke test fails the deploy if `out/index.html` or `out/404.html` is missing, the page lacks "Ayoub Lkebch", or any `/_next/` asset path is missing the base path. Only the built export is published, never the repo source. No secrets are needed.
+
+Pull requests (and pushes to any other branch) run the **CI** workflow (`.github/workflows/ci.yml`): `npm ci` → `npm run lint` → `npx tsc --noEmit` → `npm run build` → the same smoke test. It only reads the repo and never deploys.
+
+To check a build locally before pushing, run `npm run build` and serve `out/` under `/about-me/` with `.claude/skills/verify-app/scripts/run.sh all`. After a deploy, run the live checks in the skill's **Deploy** section.
+
+Unknown paths under `/about-me/` get the site's own "Page not found" page: `app/not-found.tsx` exports to `out/404.html`, which Pages serves with a 404 status.
 
 Every asset URL must carry the `/about-me` base path: use `next/link`, the metadata file conventions or base-path-aware imports, never a hard-coded root-absolute `/…` path.
 
