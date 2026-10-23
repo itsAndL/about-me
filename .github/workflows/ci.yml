@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches-ignore: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npx tsc --noEmit
+
+      - run: npm run build
+
+      # Same check as the deploy: the page rendered, and no asset path is missing the /about-me base path.
+      - name: Smoke-test the static export
+        run: test -f out/index.html && test -f out/404.html && grep -q 'Ayoub Lkebch' out/index.html && ! grep -q '"/_next/' out/index.html
