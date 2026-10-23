@@ -4,13 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Ayoub Lkebch — Full-stack product engineer</title>
+  <script>try{var t=localStorage.getItem("theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
   <link rel="stylesheet" href="styles.css">
+  <script src="theme.js" defer></script>
 </head>
 <body>
   <a class="visually-hidden-focusable" href="#main">Skip to content</a>
 
   <header class="site-header">
     <span class="monogram">AL</span>
+    <button class="theme-toggle" type="button" aria-pressed="false" aria-label="Dark mode theme" hidden><span aria-hidden="true">◐</span> Theme</button>
   </header>
 
   <main id="main">
@@ -50,10 +53,10 @@
     <section class="contact" aria-labelledby="contact-heading">
       <h2 id="contact-heading">Contact</h2>
       <ul>
-        <li><a class="contact-link" href="mailto:ayoub003lkebch@gmail.com">ayoub003lkebch@gmail.com</a></li>
+        <li><a class="contact-link" href="mailto:ayoub003lkebch@gmail.com" aria-label="Email ayoub003lkebch@gmail.com"><span class="label-long">ayoub003lkebch@gmail.com</span><span class="label-short">Email</span></a></li>
         <li><a class="contact-link" href="https://www.linkedin.com/in/ayoublkebch" target="_blank" rel="noopener noreferrer">LinkedIn<span class="visually-hidden"> (opens in a new tab)</span></a></li>
         <li><a class="contact-link" href="https://github.com/itsAndL" target="_blank" rel="noopener noreferrer">GitHub<span class="visually-hidden"> (opens in a new tab)</span></a></li>
-        <li><a class="contact-link" href="https://ayoublkebch.com" target="_blank" rel="noopener noreferrer">ayoublkebch.com<span class="visually-hidden"> (opens in a new tab)</span></a></li>
+        <li><a class="contact-link" href="https://ayoublkebch.com" target="_blank" rel="noopener noreferrer" aria-label="Website ayoublkebch.com (opens in a new tab)"><span class="label-long">ayoublkebch.com</span><span class="label-short">Website</span><span class="visually-hidden"> (opens in a new tab)</span></a></li>
       </ul>
     </section>
   </main>
