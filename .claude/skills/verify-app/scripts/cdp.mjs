@@ -71,7 +71,7 @@ function connect(wsUrl) {
   const record = ws.onmessage;
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
-    if (msg.method === "Runtime.consoleAPICalled" || msg.method === "Log.entryAdded") events.push(msg);
+    if (["Runtime.consoleAPICalled", "Runtime.exceptionThrown", "Log.entryAdded"].includes(msg.method)) events.push(msg);
     record(e);
   };
   return new Promise((resolve, reject) => {
@@ -179,22 +179,33 @@ async function theme(cdp) {
     clicked.dataTheme === "dark" && clicked.ariaPressed === "true" && clicked.stored === "dark", clicked);
   await shot("theme-after-click.png");
 
+  // Reload with Next's JS bundles blocked (CSS still loads): only the inline <head> script can
+  // set the theme, so this proves it is applied before React (and its useLayoutEffect) runs.
+  await cdp.send("Network.enable");
+  await cdp.send("Network.setBlockedURLs", { urls: ["*/_next/static/*.js*"] });
+  await open(cdp, url);
+  const headOnly = await state();
+  check("head script alone sets data-theme=dark and the dark background (bundles blocked)",
+    headOnly.dataTheme === "dark" && headOnly.bg === "rgb(17, 19, 18)", headOnly);
+  await cdp.send("Network.setBlockedURLs", { urls: [] });
+
   cdp.events.length = 0;
   await open(cdp, url);
-  // Read <html> before hydration settles: the head script must already have set it.
-  const early = await evaluate(cdp, `document.documentElement.dataset.theme ?? null`);
   await hydrated(cdp);
   const reloaded = await state();
   check("reload keeps data-theme=dark with aria-pressed=true",
-    early === "dark" && reloaded.dataTheme === "dark" && reloaded.ariaPressed === "true", { early, ...reloaded });
+    reloaded.dataTheme === "dark" && reloaded.ariaPressed === "true", reloaded);
   await shot("theme-after-reload.png");
   const texts = cdp.events.map((e) => e.params.entry?.text
+    ?? e.params.exceptionDetails?.exception?.description ?? e.params.exceptionDetails?.text
     ?? (e.params.args || []).map((a) => a.value ?? a.description ?? "").join(" "));
-  const hydration = texts.filter((t) => /hydrat/i.test(t));
+  // Production React reports hydration mismatches as minified errors #418, #419, #423-#425.
+  const hydration = texts.filter((t) => /hydrat|#41[89]\b|#42[3-5]\b/i.test(t));
   check("no hydration warnings in the console", hydration.length === 0, { console: texts });
 
   await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   await open(cdp, url);
+  await hydrated(cdp);
   const scrollWidth = await evaluate(cdp, `document.documentElement.scrollWidth`);
   check("390px: scrollWidth <= 390", scrollWidth <= 390, { scrollWidth });
   await cdp.send("Emulation.clearDeviceMetricsOverride");

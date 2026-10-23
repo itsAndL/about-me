@@ -32,11 +32,13 @@ It clears `localStorage.theme`, loads with system light, then:
 1. waits for the toggle to unhide (hydration) and checks no `data-theme`, `aria-pressed="false"`;
 2. clicks the button with a real mouse event → `data-theme="dark"`, `aria-pressed="true"`,
    `localStorage.theme="dark"` (`theme-after-click.png`);
-3. reloads → `data-theme="dark"` already set when the load event fires, `aria-pressed="true"`
-   (`theme-after-reload.png`), and the console (CDP `Runtime` + `Log`) holds no message matching
-   `/hydrat/i`;
-4. at a 390px mobile viewport, `document.documentElement.scrollWidth <= 390`;
-5. with script execution disabled (system light, then dark): 4 `.project`s, the system
+3. reloads with `*/_next/static/*.js*` blocked, so only the inline head script runs →
+   `data-theme="dark"` and the dark background (the no-flash proof);
+4. reloads normally → `data-theme="dark"`, `aria-pressed="true"` (`theme-after-reload.png`), and
+   no console message or uncaught exception (CDP `Runtime` + `Log`) matches `/hydrat/i` or the
+   minified React hydration errors `#418/#419/#423–#425`;
+5. at a 390px mobile viewport, once hydrated, `document.documentElement.scrollWidth <= 390`;
+6. with script execution disabled (system light, then dark): 4 `.project`s, the system
    background, toggle not visible (`theme-js-off-{light,dark}.png`).
 
 Results: `theme-check.txt` (PASS/FAIL lines) and `theme-check.json`.
