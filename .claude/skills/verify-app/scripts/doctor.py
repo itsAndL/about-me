@@ -1,24 +1,29 @@
 #!/usr/bin/env python3
-"""Doctor: read-only health checks for the static About Me site.
+"""Doctor: read-only health checks for the About Me Next.js static export.
 
-Usage: python3 doctor.py [repo_root]
+Usage: python3 doctor.py [repo_root] [--served http://127.0.0.1:<port>]
+Expects `npm run build` to have written out/. With --served it also fetches every local
+asset the page references from that server (which serves out/ under /about-me/).
 Exits non-zero when any check fails. Prints one line per check.
 """
 import json
 import os
-import struct
+import re
+import shutil
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from html.parser import HTMLParser
 from urllib.parse import urlparse
 
+BASE_PATH = "/about-me/"
 VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
 NU_URL = "https://validator.w3.org/nu/?out=json"
-SITE_URL = "https://itsandl.github.io/about-me/"
-REQUIRED_META = ["description", "theme-color", "og:type", "og:url", "og:title", "og:description",
-                 "og:image", "og:image:width", "og:image:height", "og:image:alt", "og:locale",
-                 "twitter:card", "twitter:title", "twitter:description", "twitter:image"]
-SITE_FILES = ["favicon.svg", "favicon.ico", "apple-touch-icon.png", "og-image.png", "robots.txt", "sitemap.xml"]
+MIN_NODE = (20, 9)
+# Moved from the repo root into public/; the metadata ticket wires them into <head>.
+PUBLIC_FILES = [".nojekyll", "favicon.svg", "favicon.ico", "apple-touch-icon.png", "og-image.png",
+                "robots.txt", "sitemap.xml"]
 
 
 class Scan(HTMLParser):
@@ -28,20 +33,8 @@ class Scan(HTMLParser):
         self.errors = []
         self.refs = []
         self.positive_tabindex = []
-        self.meta = {}
-        self.links = []
-        self.jsonld = []
-        self._in_jsonld = False
 
     def handle_starttag(self, tag, attrs):
-        a = dict(attrs)
-        if tag == "meta" and (a.get("name") or a.get("property")):
-            self.meta.setdefault(a.get("name") or a.get("property"), a.get("content"))
-        if tag == "link":
-            self.links.append(a)
-        if tag == "script" and a.get("type") == "application/ld+json":
-            self._in_jsonld = True
-            self.jsonld.append("")
         for name, value in attrs:
             if name in ("href", "src") and value is not None:
                 self.refs.append((tag, name, value, self.getpos()[0]))
@@ -55,13 +48,7 @@ class Scan(HTMLParser):
         if tag not in VOID:
             self.stack.pop()
 
-    def handle_data(self, data):
-        if self._in_jsonld:
-            self.jsonld[-1] += data
-
     def handle_endtag(self, tag):
-        if tag == "script":
-            self._in_jsonld = False
         if tag in VOID:
             return
         if not self.stack or self.stack[-1][0] != tag:
@@ -76,6 +63,21 @@ class Scan(HTMLParser):
                 self.errors.append(f"line {self.getpos()[0]}: stray </{tag}>")
             return
         self.stack.pop()
+
+
+def run(cmd, cwd):
+    """Return (exit code, last lines of combined output)."""
+    proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=False)
+    tail = (proc.stdout + proc.stderr).strip().splitlines()[-5:]
+    return proc.returncode, " | ".join(tail)
+
+
+def node_version():
+    try:
+        out = subprocess.run(["node", "--version"], capture_output=True, text=True, check=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return tuple(int(p) for p in out.strip().lstrip("v").split(".")[:2])
 
 
 def nu_check(path):
@@ -94,18 +96,28 @@ def nu_check(path):
     return True, [f"line {m.get('lastLine', '?')}: {m['message']}" for m in messages if m.get("type") == "error"]
 
 
-def png_size(path):
-    """Return (width, height) from a PNG's IHDR chunk, or None if it is not a PNG."""
-    with open(path, "rb") as f:
-        head = f.read(24)
-    if head[:8] != b"\x89PNG\r\n\x1a\n":
-        return None
-    return struct.unpack(">II", head[16:24])
+def http_status(url):
+    try:
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            return resp.status
+    except urllib.error.HTTPError as e:
+        return e.code
+    except (urllib.error.URLError, OSError) as e:
+        return str(e)
 
 
 def main():
-    root = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else ".")
-    index = os.path.join(root, "index.html")
+    args = sys.argv[1:]
+    served = None
+    if "--served" in args:
+        i = args.index("--served")
+        if i + 1 >= len(args):
+            sys.exit("usage: doctor.py [repo_root] [--served http://127.0.0.1:<port>]")
+        served = args[i + 1].rstrip("/")
+        del args[i:i + 2]
+    root = os.path.abspath(args[0] if args else ".")
+    out = os.path.join(root, "out")
+    index = os.path.join(out, "index.html")
     failed = False
 
     def report(ok, label, detail=""):
@@ -113,61 +125,62 @@ def main():
         failed |= not ok
         print(f"{'PASS' if ok else 'FAIL'}  {label}{(' — ' + detail) if detail else ''}")
 
-    report(True, "python3 present", sys.version.split()[0])
-    if not os.path.isfile(index):
-        report(False, "index.html exists")
-        sys.exit(1)
-    report(True, "index.html exists")
+    version = node_version()
+    report(version is not None and version >= MIN_NODE, f"node >= {'.'.join(map(str, MIN_NODE))}",
+           ".".join(map(str, version)) if version else "node not found")
+    report(shutil.which("npm") is not None, "npm present")
 
-    scan = Scan()
+    code, tail = run(["npx", "tsc", "--noEmit"], root)
+    report(code == 0, "npx tsc --noEmit", tail if code else "")
+    code, tail = run(["npm", "run", "lint", "--silent"], root)
+    report(code == 0, "npm run lint", tail if code else "")
+
+    if not os.path.isfile(index):
+        report(False, "out/index.html exists", "run `npm run build` first")
+        sys.exit(1)
+    report(True, "out/index.html exists")
+
     with open(index, encoding="utf-8") as f:
-        scan.feed(f.read())
+        html = f.read()
+    scan = Scan()
+    scan.feed(html)
     scan.close()
 
+    # Catches inline scripts and payloads too, not just href/src attributes.
+    rooted = re.findall(r'(?<!/about-me)/_next/[^"\'\s]*', html)
+    report(not rooted, "zero root-absolute /_next references", ", ".join(sorted(set(rooted))[:5]))
+
     local = [r for r in scan.refs if not urlparse(r[2]).scheme and not r[2].startswith(("#", "//"))]
-    absolute = [r for r in local if r[2].startswith("/")]
-    report(not absolute, "no root-absolute local paths",
-           ", ".join(f"line {l}: {n}=\"{v}\"" for _, n, v, l in absolute) or f"{len(local)} local refs checked")
+    outside = [r for r in local if not r[2].startswith(BASE_PATH)]
+    report(not outside, f"every local href/src starts with {BASE_PATH}",
+           ", ".join(f"{n}=\"{v}\"" for _, n, v, _ in outside) or f"{len(local)} local refs checked")
 
     missing = []
-    for _, name, value, line in local:
-        target = os.path.join(root, urlparse(value).path)
+    for _, name, value, _ in local:
+        path = urlparse(value).path
+        if not path.startswith(BASE_PATH):
+            continue
+        target = os.path.join(out, path[len(BASE_PATH):])
+        if path.endswith("/"):
+            target = os.path.join(target, "index.html")
         if not os.path.isfile(target):
-            missing.append(f"line {line}: {name}=\"{value}\"")
-    report(not missing, "local refs resolve to files", ", ".join(missing) or ", ".join(sorted({r[2] for r in local})))
+            missing.append(f"{name}=\"{value}\"")
+    report(not missing, "local refs resolve to files in out/", ", ".join(missing) or f"{len(local)} files")
+
+    if served:
+        bad = []
+        for _, _, value, _ in local:
+            status = http_status(served + value)
+            if status != 200:
+                bad.append(f"{value} → {status}")
+        report(not bad, f"every referenced asset returns 200 from {served}", ", ".join(bad) or f"{len(local)} × 200")
+
+    absent = [f for f in PUBLIC_FILES if not os.path.isfile(os.path.join(out, f))]
+    report(not absent, "public/ assets ship in out/", "missing " + ", ".join(absent) if absent
+           else ", ".join(PUBLIC_FILES))
 
     report(not scan.positive_tabindex, "no positive tabindex (tab order = document order)",
            ", ".join(f"line {l}" for l in scan.positive_tabindex))
-
-    missing_meta = [m for m in REQUIRED_META if not scan.meta.get(m)]
-    rels = {l.get("rel"): l.get("href") for l in scan.links}
-    missing_meta += [f"link rel={r}" for r in ("canonical", "icon", "apple-touch-icon") if r not in rels]
-    report(not missing_meta, "SEO/social meta present", "missing " + ", ".join(missing_meta) if missing_meta
-           else f"{len(REQUIRED_META)} meta + canonical/icon/apple-touch-icon links")
-
-    urls = {"canonical": rels.get("canonical"), "og:url": scan.meta.get("og:url")}
-    report(all(u == SITE_URL for u in urls.values()), "canonical and og:url equal the site URL",
-           ", ".join(f"{k}={v}" for k, v in urls.items()))
-
-    images = {k: scan.meta.get(k) for k in ("og:image", "twitter:image")}
-    report(all(v == SITE_URL + "og-image.png" for v in images.values()), "og:image/twitter:image are absolute",
-           ", ".join(f"{k}={v}" for k, v in images.items()))
-
-    absent = [f for f in SITE_FILES if not os.path.isfile(os.path.join(root, f))]
-    report(not absent, "icon, share-image and crawl files exist", "missing " + ", ".join(absent) if absent
-           else ", ".join(SITE_FILES))
-
-    og_path = os.path.join(root, "og-image.png")
-    size = png_size(og_path) if os.path.isfile(og_path) else None
-    report(size == (1200, 630), "og-image.png is 1200×630",
-           f"{size[0]}×{size[1]}, {os.path.getsize(og_path) // 1024} KB" if size else "missing or not a PNG")
-
-    try:
-        people = [json.loads(block) for block in scan.jsonld]
-        ok = any(p.get("@type") == "Person" and p.get("url") == SITE_URL for p in people)
-        report(ok, "JSON-LD Person parses", f"{len(people)} block(s)" if ok else "no Person with url = site URL")
-    except ValueError as e:
-        report(False, "JSON-LD Person parses", str(e))
 
     unclosed = scan.errors + [f"line {line}: <{t}> never closed" for t, line in scan.stack]
     report(not unclosed, "HTML well-formed (local html.parser)", "; ".join(unclosed))

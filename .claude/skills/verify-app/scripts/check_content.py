@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Assert the rendered DOM (from `chrome --dump-dom`) against each feature's contract.
+"""Assert the rendered DOM (from `chrome --dump-dom`) or the exported out/index.html against
+each feature's contract.
 
 Usage: python3 check_content.py <dom.html> [feature ...]
 Features: intro, projects, contact, footer (default: all).
 Exits non-zero on any mismatch. The expected values mirror features/*.md.
 """
+import html
 import sys
 from html.parser import HTMLParser
 
@@ -21,6 +23,7 @@ CONTACT_URLS = [
     "https://ayoublkebch.com",
 ]
 FOOTER_URLS = ["https://github.com/itsAndL/about-me"]
+VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
 
 FEATURES = {
     "intro": {
@@ -69,8 +72,9 @@ class Collect(HTMLParser):
         super().__init__()
         self.classes = {}
         self.links = []  # (class list, href, target, rel)
-        self.body_first = None  # (tag, class, href) of the first element inside <body>
+        self.body_first = None  # (tag, class, href) of the first visible element inside <body>
         self._in_body = False
+        self._hidden_depth = 0  # >0 while inside a `hidden` element (Next.js injects one first)
         self._anchor = None  # [target, saw aria-hidden ↗, saw new-tab note] for the open <a>
         self._span = None
         self.anchor_extras = []  # (href, target, has aria-hidden arrow, has new-tab note)
@@ -80,7 +84,12 @@ class Collect(HTMLParser):
         cls = (a.get("class") or "").split()
         for c in cls:
             self.classes[c] = self.classes.get(c, 0) + 1
-        if self._in_body and self.body_first is None:
+        if self._hidden_depth:
+            if tag not in VOID:
+                self._hidden_depth += 1
+        elif "hidden" in a and self._in_body and tag not in VOID:
+            self._hidden_depth = 1
+        elif self._in_body and self.body_first is None:
             self.body_first = (tag, a.get("class"), a.get("href"))
         if tag == "body":
             self._in_body = True
@@ -99,6 +108,8 @@ class Collect(HTMLParser):
             self._anchor["note"] = True
 
     def handle_endtag(self, tag):
+        if self._hidden_depth and tag not in VOID:
+            self._hidden_depth -= 1
         if tag == "span":
             self._span = None
         if tag == "a" and self._anchor is not None:
@@ -110,10 +121,12 @@ def main():
     if len(sys.argv) < 2:
         sys.exit(__doc__)
     with open(sys.argv[1], encoding="utf-8") as f:
-        dom = f.read()
+        raw = f.read()
+    # The exported HTML escapes text (React writes ' as &#x27;); compare strings as rendered.
+    dom = html.unescape(raw)
     wanted = sys.argv[2:] or list(FEATURES)
     page = Collect()
-    page.feed(dom)
+    page.feed(raw)
     failures = 0
 
     def report(ok, label):

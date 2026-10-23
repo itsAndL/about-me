@@ -25,16 +25,19 @@ jobs:
 
       - uses: actions/configure-pages@v6
 
-      # Deny-list, not allow-list: new site files at the repo root publish without editing this workflow.
-      - name: Stage public files into _site
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      # Static export (next.config.ts: output "export", basePath "/about-me") writes the site to out/.
+      - name: Build the static export
         run: |
-          printf '%s\n' .git .github .claude .agents .fredrin README.md _site > "$RUNNER_TEMP/pages-exclude"
-          mkdir -p _site
-          rsync -a --exclude-from="$RUNNER_TEMP/pages-exclude" ./ _site/
+          npm ci
+          npm run build
 
       - uses: actions/upload-pages-artifact@v5
         with:
-          path: _site
+          path: out
           # v4+ drops dotfiles by default; .nojekyll must ship.
           include-hidden-files: true
 

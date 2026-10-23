@@ -1,7 +1,8 @@
 # Feature: projects ("Shipped")
 
 `section.projects[aria-labelledby="shipped-heading"]` with `<h2 id="shipped-heading">Shipped</h2>`
-and a `<ul>` of exactly four `li.project`, in this order.
+and a `<ul>` of exactly four `li.project`, in this order. Source: the `projects` array in
+`app/content.ts`, rendered by `app/page.tsx`.
 
 ## Selectors
 
@@ -22,5 +23,5 @@ Every `.project-link` has `target="_blank" rel="noopener noreferrer"`.
 
 ```sh
 python3 .claude/skills/verify-app/scripts/check_content.py <evidence>/dom.html projects
-curl -s http://127.0.0.1:8765/ | grep -c 'class="project"'   # 4
+curl -s http://127.0.0.1:8765/about-me/ | grep -o 'class="project"' | wc -l   # 4 (export is one line)
 ```
