@@ -18,6 +18,23 @@ mkdir -p "$TMP"
 
 port_busy() { lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; }
 
+# True when the pid file names a live process that is our http.server (not a reused PID).
+our_server_alive() {
+  [ -f "$PID_FILE" ] || return 1
+  ps -p "$(cat "$PID_FILE")" -o command= 2>/dev/null | grep -Eq '[Pp]ython[0-9.]* -m http\.server '
+}
+
+# Stock macOS has no `timeout`; perl's alarm kills a hung Chrome so cleanup still runs.
+with_timeout() { local secs="$1"; shift; perl -e 'alarm shift; exec @ARGV' "$secs" "$@"; }
+
+node_ok() { command -v node >/dev/null && node -e 'process.exit(typeof WebSocket === "function" ? 0 : 1)'; }
+
+expect_file() {
+  if [ -s "$1" ]; then return 0; fi
+  echo "FAIL  missing or empty $(basename "$1")"
+  return 1
+}
+
 find_chrome() {
   local mac="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   if [ -x "$mac" ]; then echo "$mac"; return; fi
@@ -25,6 +42,10 @@ find_chrome() {
 }
 
 launch() {
+  if our_server_alive; then
+    echo "FAIL  already launched (pid $(cat "$PID_FILE"), port $(cat "$PORT_FILE" 2>/dev/null)) — run cleanup first"
+    return 2
+  fi
   local port=8765
   while port_busy "$port"; do port=$((port + 1)); done
   [ "$port" != 8765 ] && echo "NOTE  port 8765 is busy — using $port instead"
@@ -58,31 +79,36 @@ drive() {
   echo "== Drive ($url → $out)"
 
   curl -s "$url" >"$out/served.html"
+  expect_file "$out/served.html" || status=1
   local chrome; chrome="$(find_chrome)"
   if [ -z "$chrome" ]; then
     echo "SKIP  no Chrome/Chromium found — screenshots skipped, asserting on the served HTML instead"
     python3 "$SKILL/scripts/check_content.py" "$out/served.html" | tee "$out/content-check.txt" || status=1
-    write_summary "$out" "$url" "curl only (no Chrome)"
+    write_summary "$out" "fetched $url with curl only (no Chrome: no screenshots, no keyboard check)"
     return $status
   fi
 
   local headless=(--headless=new --disable-gpu --hide-scrollbars --no-first-run)
-  "$chrome" "${headless[@]}" --virtual-time-budget=3000 --dump-dom "$url" >"$out/dom.html" 2>/dev/null
-  "$chrome" "${headless[@]}" --force-dark-mode --virtual-time-budget=3000 --dump-dom "$url" >"$out/dom-dark.html" 2>/dev/null
-  "$chrome" "${headless[@]}" --window-size=1280,1400 --screenshot="$out/desktop-light.png" "$url" 2>/dev/null
-  "$chrome" "${headless[@]}" --force-dark-mode --window-size=1280,1400 --screenshot="$out/desktop-dark.png" "$url" 2>/dev/null
+  with_timeout 60 "$chrome" "${headless[@]}" --virtual-time-budget=3000 --dump-dom "$url" >"$out/dom.html" 2>/dev/null
+  with_timeout 60 "$chrome" "${headless[@]}" --force-dark-mode --virtual-time-budget=3000 --dump-dom "$url" >"$out/dom-dark.html" 2>/dev/null
+  with_timeout 60 "$chrome" "${headless[@]}" --window-size=1280,1400 --screenshot="$out/desktop-light.png" "$url" 2>/dev/null
+  with_timeout 60 "$chrome" "${headless[@]}" --force-dark-mode --window-size=1280,1400 --screenshot="$out/desktop-dark.png" "$url" 2>/dev/null
 
   python3 "$SKILL/scripts/check_content.py" "$out/dom.html" | tee "$out/content-check.txt" || status=1
 
   # Headless Chrome will not shrink a window below ~500px. With node, cdp.mjs emulates a
   # real 390px viewport; without it, the page loads in a 390px iframe inside a 500px window.
-  if command -v node >/dev/null; then
+  local how="headless Chrome ($chrome): DOM dump and desktop 1280×1400, light and dark"
+  if node_ok; then
     for scheme in light dark; do
       node "$SKILL/scripts/cdp.mjs" phone "$chrome" "$url" "$out/phone-$scheme.png" "$scheme" || status=1
     done
     node "$SKILL/scripts/cdp.mjs" tab "$chrome" "$url" "$out" | tee "$out/keyboard-check.txt" || status=1
+    how="$how; phone 390px via DevTools emulation, light and dark; pressed Tab once"
   else
-    echo "NOTE  node not found — phone view uses the iframe wrapper; keyboard (first Tab) check skipped"
+    echo "NOTE  node 22+ not found — phone view uses the iframe wrapper; keyboard (first Tab) NOT verified"
+    echo "NOT VERIFIED — needs node 22+ for the real Tab key press" >"$out/keyboard-check.txt"
+    how="$how; phone via 390px iframe in a 500px window, light and dark; keyboard not checked (no node 22+)"
     local frame_dir="$TMP/verify-app-frame"
     mkdir -p "$frame_dir"
     cat >"$frame_dir/phone.html" <<EOF
@@ -90,18 +116,21 @@ drive() {
 <body><iframe src="$url" title="phone viewport"></iframe></body></html>
 EOF
     local phone_url="http://127.0.0.1:$port/.fredrin/tmp/verify-app-frame/phone.html"
-    "$chrome" "${headless[@]}" --window-size=500,2400 --virtual-time-budget=3000 \
+    with_timeout 60 "$chrome" "${headless[@]}" --window-size=500,2400 --virtual-time-budget=3000 \
       --screenshot="$out/phone-light.png" "$phone_url" 2>/dev/null
-    "$chrome" "${headless[@]}" --force-dark-mode --window-size=500,2400 --virtual-time-budget=3000 \
+    with_timeout 60 "$chrome" "${headless[@]}" --force-dark-mode --window-size=500,2400 --virtual-time-budget=3000 \
       --screenshot="$out/phone-dark.png" "$phone_url" 2>/dev/null
   fi
-  write_summary "$out" "$url" "headless Chrome: $chrome"
+  for f in dom.html dom-dark.html desktop-light.png desktop-dark.png phone-light.png phone-dark.png; do
+    expect_file "$out/$f" || status=1
+  done
+  write_summary "$out" "served the repo with python3 http.server and loaded $url in $how"
   ls -1 "$out"
   return $status
 }
 
 write_summary() {
-  local out="$1" url="$2" how="$3"
+  local out="$1" action="$2"
   local dom="$out/dom.html" projects links
   [ -f "$dom" ] || dom="$out/served.html"
   projects="$(grep -o 'class="project"' "$dom" | wc -l | tr -d ' ')"
@@ -109,7 +138,7 @@ write_summary() {
   cat >"$out/SUMMARY.md" <<EOF
 # verify-app run $(basename "$out")
 
-- **Action:** served the repo with python3 http.server, loaded $url ($how) at 1280×1400 and 390px wide, light and dark, dumped the DOM, pressed Tab once.
+- **Action:** $action.
 - **State:** $(grep -c '^PASS' "$out/content-check.txt") content checks passed, $(grep -c '^FAIL' "$out/content-check.txt") failed; $(basename "$dom") holds \`.project\` × $projects and \`.contact-link\` × $links.
 - **Keyboard:** $(cat "$out/keyboard-check.txt" 2>/dev/null || echo "not run")
 - **Side effects:** none expected (static site; no requests leave the machine except the optional W3C checker POST in Doctor).
@@ -119,12 +148,16 @@ EOF
 cleanup() {
   if [ -f "$PID_FILE" ]; then
     local pid; pid="$(cat "$PID_FILE")"
-    if kill "$pid" 2>/dev/null; then echo "PASS  stopped http.server pid $pid"; else echo "NOTE  pid $pid already gone"; fi
+    if our_server_alive && kill "$pid" 2>/dev/null; then
+      echo "PASS  stopped http.server pid $pid"
+    else
+      echo "NOTE  pid $pid is gone or no longer an http.server — left alone"
+    fi
     rm -f "$PID_FILE" "$PORT_FILE"
   else
     echo "NOTE  no pid file — nothing to stop"
   fi
-  [ -f "$EVIDENCE_FILE" ] && echo "Evidence kept in $(cat "$EVIDENCE_FILE")"
+  if [ -f "$EVIDENCE_FILE" ]; then echo "Evidence of the latest drive kept in $(cat "$EVIDENCE_FILE")"; fi
 }
 
 case "${1:-all}" in
@@ -133,9 +166,11 @@ case "${1:-all}" in
   drive) drive ;;
   cleanup) cleanup ;;
   all)
-    trap cleanup EXIT
     rc=0
     doctor || rc=1
+    # Refuse (and leave the earlier server alone) when a launch is already live.
+    our_server_alive && { launch; exit 1; }
+    trap cleanup EXIT
     launch || exit 1
     drive || rc=1
     echo "== Result: $([ $rc = 0 ] && echo PASS || echo FAIL)"

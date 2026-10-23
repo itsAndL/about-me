@@ -65,6 +65,8 @@ def nu_check(path):
         messages = json.loads(out)["messages"]
     except (ValueError, KeyError, OSError):
         return False, []
+    if any(m.get("type") == "non-document-error" for m in messages):
+        return False, []  # the checker could not read the input, so nothing was validated
     return True, [f"line {m.get('lastLine', '?')}: {m['message']}" for m in messages if m.get("type") == "error"]
 
 
@@ -111,7 +113,7 @@ def main():
     if reachable:
         report(not nu_errors, "W3C Nu checker: no errors", "; ".join(nu_errors))
     else:
-        print("SKIP  W3C Nu checker unreachable — relying on the local parser above")
+        print("SKIP  W3C Nu checker unreachable or could not read the file — relying on the local parser above")
 
     sys.exit(1 if failed else 0)
 

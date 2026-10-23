@@ -49,14 +49,19 @@ Chrome: `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`, else `go
 1. Saves the served HTML (`curl`) and the rendered DOM (`--dump-dom`, light and dark).
 2. Screenshots desktop at `--window-size=1280,1400`, light and dark.
 3. Screenshots the phone view at 390px wide, light and dark. Headless Chrome will not size a
-   window below ~500px, so `scripts/cdp.mjs phone` (node) emulates a real 390px mobile viewport
-   over the DevTools protocol and captures the full page. Without node it falls back to loading
+   window below ~500px, so `scripts/cdp.mjs phone` (node 22+) emulates a real 390px mobile viewport
+   over the DevTools protocol and captures the full page. Without node 22+ it falls back to loading
    the page in a 390px `<iframe>` (wrapper written to `.fredrin/tmp/verify-app-frame/phone.html`)
    inside a 500px window — the right 110px of those images is wrapper background.
 4. Asserts content with `scripts/check_content.py dom.html` — every feature in the map below,
    plus all 9 external/mailto URLs in order and their `target`/`rel`.
 5. Presses a real **Tab** key once (`scripts/cdp.mjs tab`) and asserts focus lands on a visible
    `Skip to content` link to `#main`; saves `keyboard-first-tab.png` of the focused state.
+   Without node 22+ this is reported as NOT VERIFIED — say so; the run is not keyboard-checked.
+
+Every Chrome call has a watchdog (60s per CLI call, 30s per `cdp.mjs` run) so a hung browser
+fails the run instead of hanging it, and every expected screenshot/DOM file must exist and be
+non-empty or Drive fails.
 
 **Dark mode:** both `--force-dark-mode` and `--blink-settings=preferredColorScheme=0` make
 `prefers-color-scheme: dark` match in headless Chrome (checked on Chrome for macOS);
@@ -88,7 +93,11 @@ To attach to a ticket: `./.fredrin/fredrin ticket upload <png> --kind after --pa
 
 Kills **only** the PID in `.fredrin/tmp/verify-app.pid`, then removes the pid/port files.
 It never kills other processes on the port. The evidence folder is kept.
-Confirm nothing is left: `pgrep -f 'http.server 8765'` prints nothing.
+Before killing, it confirms that PID is still an `http.server` (a stale pid file can point at a
+reused PID). Confirm nothing is left: `pgrep -f 'http.server'` prints nothing.
+
+A second `launch` while one is live refuses ("already launched — run cleanup first") instead of
+starting a second server the pid file would lose track of.
 
 ## Feature map
 

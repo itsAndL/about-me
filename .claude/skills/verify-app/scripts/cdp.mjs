@@ -117,13 +117,23 @@ async function fullPage(cdp) {
   return { x: 0, y: 0, width: 390, height: Math.ceil(cssContentSize.height), scale: 1 };
 }
 
+const TIMEOUT_MS = 30000;
 let ok = false;
 try {
-  const port = await devtoolsPort();
-  const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
-  const cdp = await connect(targets.find((t) => t.type === "page").webSocketDebuggerUrl);
-  ok = mode === "tab" ? await firstTab(cdp) : await phone(cdp);
-  cdp.close();
+  if (typeof WebSocket !== "function") throw new Error("needs node 22+ (global WebSocket)");
+  const run = async () => {
+    const port = await devtoolsPort();
+    const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+    const cdp = await connect(targets.find((t) => t.type === "page").webSocketDebuggerUrl);
+    try {
+      return mode === "tab" ? await firstTab(cdp) : await phone(cdp);
+    } finally {
+      cdp.close();
+    }
+  };
+  const timeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error(`timed out after ${TIMEOUT_MS / 1000}s`)), TIMEOUT_MS).unref());
+  ok = await Promise.race([run(), timeout]);
 } catch (err) {
   console.log(`FAIL  cdp ${mode}: ${err.message}`);
 } finally {

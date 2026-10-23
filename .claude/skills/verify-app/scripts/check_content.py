@@ -69,14 +69,41 @@ class Collect(HTMLParser):
         super().__init__()
         self.classes = {}
         self.links = []  # (class list, href, target, rel)
+        self.body_first = None  # (tag, class, href) of the first element inside <body>
+        self._in_body = False
+        self._anchor = None  # [target, saw aria-hidden ↗, saw new-tab note] for the open <a>
+        self._span = None
+        self.anchor_extras = []  # (href, target, has aria-hidden arrow, has new-tab note)
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
         cls = (a.get("class") or "").split()
         for c in cls:
             self.classes[c] = self.classes.get(c, 0) + 1
+        if self._in_body and self.body_first is None:
+            self.body_first = (tag, a.get("class"), a.get("href"))
+        if tag == "body":
+            self._in_body = True
         if tag == "a" and a.get("href"):
             self.links.append((cls, a["href"], a.get("target"), a.get("rel")))
+            self._anchor = {"href": a["href"], "target": a.get("target"), "arrow": False, "note": False}
+        if tag == "span" and self._anchor is not None:
+            self._span = "arrow" if a.get("aria-hidden") == "true" else "note" if "visually-hidden" in cls else None
+
+    def handle_data(self, data):
+        if self._anchor is None or self._span is None:
+            return
+        if self._span == "arrow" and data.strip() == "↗":
+            self._anchor["arrow"] = True
+        if self._span == "note" and data == " (opens in a new tab)":
+            self._anchor["note"] = True
+
+    def handle_endtag(self, tag):
+        if tag == "span":
+            self._span = None
+        if tag == "a" and self._anchor is not None:
+            self.anchor_extras.append(self._anchor)
+            self._anchor = None
 
 
 def main():
@@ -102,6 +129,14 @@ def main():
         for cls, n in spec["counts"].items():
             got = page.classes.get(cls, 0)
             report(got == n, f".{cls} count {got} (want {n})")
+        if name == "intro":
+            report(page.body_first == ("a", "visually-hidden-focusable", "#main"),
+                   f"first element in body is the skip link (got {page.body_first})")
+        if name == "projects":
+            arrows = [x["href"] for x in page.anchor_extras if x["arrow"]]
+            report(arrows == PROJECT_URLS, "each .project-link has an aria-hidden ↗")
+            report('<h3 class="project-name">Opilote <span class="badge">Building now</span></h3>' in dom,
+                   ".badge sits inside Opilote's .project-name")
         if "links" in spec:
             cls, urls = spec["links"]
             got = [href for c, href, _, _ in page.links if cls in c]
@@ -113,11 +148,13 @@ def main():
         got = [href for _, href, _, _ in external]
         want = PROJECT_URLS + CONTACT_URLS + FOOTER_URLS
         report(got == want, f"{len(got)} external/mailto hrefs match the approved list in order")
+        notes = {x["href"]: x["note"] for x in page.anchor_extras}
         for _, href, target, rel in external:
             if href.startswith("mailto:"):
                 report(target is None, f"{href} opens in the same tab")
             else:
-                report(target == "_blank" and rel == "noopener noreferrer", f"{href} target=_blank rel=noopener noreferrer")
+                report(target == "_blank" and rel == "noopener noreferrer" and notes.get(href),
+                       f"{href} target=_blank rel=noopener noreferrer + hidden '(opens in a new tab)'")
 
     print(f"{'OK' if not failures else 'FAILED'}: {failures} failure(s)")
     sys.exit(1 if failures else 0)
