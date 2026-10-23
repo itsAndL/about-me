@@ -36,6 +36,11 @@ Exit 0 means every step passed. Each phase can also run alone:
 - Every local `href`/`src` in `index.html` resolves to a file in the repo.
 - No root-absolute local paths (`href="/…"`, `src="/…"`) — they would break under `/about-me/`.
 - No positive `tabindex` (so keyboard order is document order).
+- SEO/social metadata: description, theme-color, the `og:*` and `twitter:*` tags, and
+  `canonical`/`icon`/`apple-touch-icon` links are present; `canonical` and `og:url` both equal
+  `https://itsandl.github.io/about-me/` (lowercase); `og:image`/`twitter:image` are that base +
+  `og-image.png`; `favicon.svg`, `favicon.ico`, `apple-touch-icon.png`, `og-image.png`,
+  `robots.txt` and `sitemap.xml` exist; `og-image.png` is 1200×630; the JSON-LD `Person` parses.
 - HTML is well-formed: a local `html.parser` pass that reports unclosed and stray tags, **and**
   the W3C Nu checker when reachable
   (`curl -s -H 'Content-Type: text/html; charset=utf-8' --data-binary @index.html 'https://validator.w3.org/nu/?out=json'`).
