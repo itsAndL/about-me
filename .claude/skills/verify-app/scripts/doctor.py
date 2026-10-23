@@ -10,6 +10,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import urllib.error
@@ -21,9 +22,11 @@ BASE_PATH = "/about-me/"
 VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
 NU_URL = "https://validator.w3.org/nu/?out=json"
 MIN_NODE = (20, 9)
-# Moved from the repo root into public/; the metadata ticket wires them into <head>.
-PUBLIC_FILES = [".nojekyll", "favicon.svg", "favicon.ico", "apple-touch-icon.png", "og-image.png",
-                "robots.txt", "sitemap.xml"]
+SITE_URL = "https://itsandl.github.io/about-me/"
+# Static files in public/ plus the app/ metadata file conventions (icons, share images).
+PUBLIC_FILES = [".nojekyll", "robots.txt", "sitemap.xml", "icon.svg", "icon.ico", "apple-icon.png",
+                "opengraph-image.png", "twitter-image.png"]
+OG_SIZE = (1200, 630)
 
 
 class Scan(HTMLParser):
@@ -33,8 +36,20 @@ class Scan(HTMLParser):
         self.errors = []
         self.refs = []
         self.positive_tabindex = []
+        self.meta = {}  # name/property → [content, ...]
+        self.links = []  # (rel, href)
+        self.json_ld = []
+        self._in_json_ld = False
 
     def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if tag == "meta" and (a.get("name") or a.get("property")):
+            self.meta.setdefault(a.get("name") or a.get("property"), []).append(a.get("content") or "")
+        if tag == "link" and a.get("rel"):
+            self.links.append((a["rel"], a.get("href") or ""))
+        if tag == "script" and a.get("type") == "application/ld+json":
+            self._in_json_ld = True
+            self.json_ld.append("")
         for name, value in attrs:
             if name in ("href", "src") and value is not None:
                 self.refs.append((tag, name, value, self.getpos()[0]))
@@ -48,7 +63,13 @@ class Scan(HTMLParser):
         if tag not in VOID:
             self.stack.pop()
 
+    def handle_data(self, data):
+        if self._in_json_ld:
+            self.json_ld[-1] += data
+
     def handle_endtag(self, tag):
+        if tag == "script":
+            self._in_json_ld = False
         if tag in VOID:
             return
         if not self.stack or self.stack[-1][0] != tag:
@@ -104,6 +125,76 @@ def http_status(url):
         return e.code
     except (urllib.error.URLError, OSError) as e:
         return str(e)
+
+
+def png_size(path):
+    """Return (width, height) from a PNG's IHDR chunk, or None if it is not a PNG."""
+    with open(path, "rb") as f:
+        head = f.read(24)
+    if head[:8] != b"\x89PNG\r\n\x1a\n":
+        return None
+    return struct.unpack(">II", head[16:24])
+
+
+def check_metadata(scan, out, served, report):
+    """SEO/social head: required tags, absolute URLs under SITE_URL, share image and crawl files."""
+    meta = scan.meta
+    required = ["description", "og:title", "og:description", "og:url", "og:type", "og:image",
+                "og:image:alt", "twitter:card", "twitter:title", "twitter:description", "twitter:image",
+                "twitter:image:alt"]
+    absent = [k for k in required if not meta.get(k)]
+    report(not absent, "metadata: required meta tags present", "missing " + ", ".join(absent) if absent
+           else f"{len(required)} tags")
+
+    report(meta.get("twitter:card") == ["summary_large_image"], "metadata: twitter:card is summary_large_image",
+           str(meta.get("twitter:card")))
+    themes = meta.get("theme-color", [])
+    report(len(themes) == 2, "metadata: two theme-color metas (light + dark)", ", ".join(themes))
+
+    canonical = [href for rel, href in scan.links if rel == "canonical"]
+    og_url = meta.get("og:url", [])
+    report(canonical == [SITE_URL] and og_url == [SITE_URL], f"metadata: canonical == og:url == {SITE_URL}",
+           f"canonical={canonical} og:url={og_url}")
+
+    for key in ("og:image", "twitter:image"):
+        for url in meta.get(key, []):
+            if not url.startswith(SITE_URL):
+                report(False, f"metadata: {key} is under {SITE_URL}", url)
+                continue
+            path = urlparse(url).path
+            file = os.path.join(out, path[len(BASE_PATH):])
+            ok = os.path.isfile(file)
+            size = png_size(file) if ok else None
+            report(ok and size == OG_SIZE, f"metadata: {key} resolves to a {OG_SIZE[0]}×{OG_SIZE[1]} file in out/",
+                   f"{path} → {size or 'missing'}")
+            if served:
+                status = http_status(served + path)
+                report(status == 200, f"metadata: {key} returns 200 when served", f"{path} → {status}")
+
+    icons = [href for rel, href in scan.links if rel in ("icon", "apple-touch-icon")]
+    report(any(rel == "icon" for rel, _ in scan.links) and any(rel == "apple-touch-icon" for rel, _ in scan.links),
+           "metadata: icon and apple-touch-icon links present", ", ".join(icons))
+
+    people = []
+    for raw in scan.json_ld:
+        try:
+            data = json.loads(raw)
+        except ValueError as e:
+            report(False, "metadata: JSON-LD parses", str(e))
+            continue
+        if data.get("@type") == "Person":
+            people.append(data)
+    report(len(people) == 1 and people[0].get("url") == SITE_URL, "metadata: one JSON-LD Person with url " + SITE_URL,
+           f"{len(people)} Person block(s)")
+
+    for name in ("robots.txt", "sitemap.xml"):
+        file = os.path.join(out, name)
+        text = open(file, encoding="utf-8").read() if os.path.isfile(file) else ""
+        expected = SITE_URL + "sitemap.xml" if name == "robots.txt" else SITE_URL
+        report(expected in text, f"metadata: {name} references {expected}")
+        if served:
+            status = http_status(served + BASE_PATH + name)
+            report(status == 200, f"metadata: {BASE_PATH}{name} returns 200 when served", str(status))
 
 
 def main():
@@ -178,6 +269,8 @@ def main():
     absent = [f for f in PUBLIC_FILES if not os.path.isfile(os.path.join(out, f))]
     report(not absent, "public/ assets ship in out/", "missing " + ", ".join(absent) if absent
            else ", ".join(PUBLIC_FILES))
+
+    check_metadata(scan, out, served, report)
 
     report(not scan.positive_tabindex, "no positive tabindex (tab order = document order)",
            ", ".join(f"line {l}" for l in scan.positive_tabindex))
