@@ -27,6 +27,7 @@ SITE_URL = "https://itsandl.github.io/about-me/"
 PUBLIC_FILES = [".nojekyll", "robots.txt", "sitemap.xml", "icon.svg", "icon.ico", "apple-icon.png",
                 "opengraph-image.png", "twitter-image.png"]
 OG_SIZE = (1200, 630)
+THEME_COLORS = {"(prefers-color-scheme: light)": "#fbfaf7", "(prefers-color-scheme: dark)": "#111312"}
 
 
 class Scan(HTMLParser):
@@ -37,6 +38,7 @@ class Scan(HTMLParser):
         self.refs = []
         self.positive_tabindex = []
         self.meta = {}  # name/property → [content, ...]
+        self.theme_colors = {}  # media → color
         self.links = []  # (rel, href)
         self.json_ld = []
         self._in_json_ld = False
@@ -45,6 +47,8 @@ class Scan(HTMLParser):
         a = dict(attrs)
         if tag == "meta" and (a.get("name") or a.get("property")):
             self.meta.setdefault(a.get("name") or a.get("property"), []).append(a.get("content") or "")
+            if a.get("name") == "theme-color":
+                self.theme_colors[a.get("media")] = a.get("content")
         if tag == "link" and a.get("rel"):
             self.links.append((a["rel"], a.get("href") or ""))
         if tag == "script" and a.get("type") == "application/ld+json":
@@ -131,7 +135,7 @@ def png_size(path):
     """Return (width, height) from a PNG's IHDR chunk, or None if it is not a PNG."""
     with open(path, "rb") as f:
         head = f.read(24)
-    if head[:8] != b"\x89PNG\r\n\x1a\n":
+    if len(head) < 24 or head[:8] != b"\x89PNG\r\n\x1a\n":
         return None
     return struct.unpack(">II", head[16:24])
 
@@ -142,14 +146,14 @@ def check_metadata(scan, out, served, report):
     required = ["description", "og:title", "og:description", "og:url", "og:type", "og:image",
                 "og:image:alt", "twitter:card", "twitter:title", "twitter:description", "twitter:image",
                 "twitter:image:alt"]
-    absent = [k for k in required if not meta.get(k)]
+    absent = [k for k in required if not any(v.strip() for v in meta.get(k, []))]
     report(not absent, "metadata: required meta tags present", "missing " + ", ".join(absent) if absent
            else f"{len(required)} tags")
 
     report(meta.get("twitter:card") == ["summary_large_image"], "metadata: twitter:card is summary_large_image",
            str(meta.get("twitter:card")))
-    themes = meta.get("theme-color", [])
-    report(len(themes) == 2, "metadata: two theme-color metas (light + dark)", ", ".join(themes))
+    report(scan.theme_colors == THEME_COLORS, "metadata: theme-color metas for light and dark",
+           ", ".join(f"{m}={c}" for m, c in scan.theme_colors.items()))
 
     canonical = [href for rel, href in scan.links if rel == "canonical"]
     og_url = meta.get("og:url", [])
@@ -182,10 +186,23 @@ def check_metadata(scan, out, served, report):
         except ValueError as e:
             report(False, "metadata: JSON-LD parses", str(e))
             continue
-        if data.get("@type") == "Person":
-            people.append(data)
+        for node in data if isinstance(data, list) else [data]:
+            if isinstance(node, dict) and node.get("@type") == "Person":
+                people.append(node)
     report(len(people) == 1 and people[0].get("url") == SITE_URL, "metadata: one JSON-LD Person with url " + SITE_URL,
            f"{len(people)} Person block(s)")
+
+    not_found = os.path.join(out, "404.html")
+    if os.path.isfile(not_found):
+        scan404 = Scan()
+        with open(not_found, encoding="utf-8") as f:
+            scan404.feed(f.read())
+        robots = scan404.meta.get("robots", [])
+        canon = [href for rel, href in scan404.links if rel == "canonical"]
+        report(robots and all("noindex" in r for r in robots) and not canon,
+               "metadata: 404.html is noindex with no canonical", f"robots={robots} canonical={canon}")
+    else:
+        report(False, "metadata: 404.html is noindex with no canonical", "out/404.html missing")
 
     for name in ("robots.txt", "sitemap.xml"):
         file = os.path.join(out, name)

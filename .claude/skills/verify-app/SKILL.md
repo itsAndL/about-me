@@ -56,11 +56,11 @@ always finish with `run.sh all`.
   file conventions (`icon.svg`, `icon.ico`, `apple-icon.png`, `opengraph-image.png`,
   `twitter-image.png`) ship in `out/`.
 - SEO/social metadata (see `features/metadata.md`): description, Open Graph and Twitter tags present;
-  `twitter:card` is `summary_large_image`; two `theme-color` metas; canonical == `og:url` ==
+  `twitter:card` is `summary_large_image`; `theme-color` `#fbfaf7` (light) and `#111312` (dark); canonical == `og:url` ==
   `https://itsandl.github.io/about-me/`; `og:image` / `twitter:image` are absolute under that URL and
   resolve to 1200×630 PNGs in `out/` (and return 200 with `--served`); icon and apple-touch-icon
   links present; exactly one JSON-LD `Person` that parses; `robots.txt` / `sitemap.xml` reference the
-  canonical URL (and return 200 with `--served`).
+  canonical URL (and return 200 with `--served`); `out/404.html` is `noindex` with no canonical.
 - No positive `tabindex` (so keyboard order is document order).
 - HTML is well-formed: a local `html.parser` pass, **and** the W3C Nu checker when reachable.
   Offline it prints `SKIP  W3C Nu checker unreachable` and relies on the local pass.

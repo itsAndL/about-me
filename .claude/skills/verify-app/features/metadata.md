@@ -23,6 +23,8 @@ convention.
 | `link[rel=icon]` × 2, `link[rel=apple-touch-icon]` | `/about-me/icon.svg?…`, `/about-me/icon.ico?…`, `/about-me/apple-icon.png?…` |
 | `script[type="application/ld+json"]` | one `Person`, `url` `https://itsandl.github.io/about-me/` |
 
+`out/404.html` (`app/not-found.tsx`) overrides the root metadata: `noindex`, no canonical.
+
 ## Check
 
 ```sh
