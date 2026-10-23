@@ -13,6 +13,12 @@ export type Project = {
 export type ContactLink = {
   href: string;
   label: string;
+  /** Phone label, shown instead of `label` at ≤520px. */
+  shortLabel?: string;
+  /** Accessible name carrying the full value; set wherever `shortLabel` is. */
+  ariaLabel?: string;
+  /** Decorative glyph shown before the long label. */
+  icon?: string;
 };
 
 export const projects: Project[] = [
@@ -46,10 +52,21 @@ export const projects: Project[] = [
 
 // The mailto link opens in the same tab; every other link opens a new one.
 export const contactLinks: ContactLink[] = [
-  { href: "mailto:ayoub003lkebch@gmail.com", label: "ayoub003lkebch@gmail.com" },
+  {
+    href: "mailto:ayoub003lkebch@gmail.com",
+    label: "ayoub003lkebch@gmail.com",
+    shortLabel: "Email",
+    ariaLabel: "Email ayoub003lkebch@gmail.com",
+    icon: "✉",
+  },
   { href: "https://www.linkedin.com/in/ayoublkebch", label: "LinkedIn" },
   { href: "https://github.com/itsAndL", label: "GitHub" },
-  { href: "https://ayoublkebch.com", label: "ayoublkebch.com" },
+  {
+    href: "https://ayoublkebch.com",
+    label: "ayoublkebch.com",
+    shortLabel: "Website",
+    ariaLabel: "Website ayoublkebch.com",
+  },
 ];
 
 export const sourceUrl = "https://github.com/itsAndL/about-me";

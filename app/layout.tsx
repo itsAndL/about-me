@@ -24,13 +24,20 @@ export const viewport: Viewport = {
   ],
 };
 
+// Runs while <head> parses, before first paint: a stored theme choice beats the system one.
+const themeScript = `(function(){try{var t=localStorage.getItem("theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t}catch(e){}})()`;
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    // The head script sets data-theme before React hydrates.
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
       <body>
         <a className="visually-hidden-focusable" href="#main">
           Skip to content

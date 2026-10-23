@@ -83,6 +83,11 @@ Chrome: `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`, else `go
 5. Presses a real **Tab** key once (`scripts/cdp.mjs tab`) and asserts focus lands on a visible
    `Skip to content` link to `#main`; saves `keyboard-first-tab.png` of the focused state.
    Without node 22+ this is reported as NOT VERIFIED — say so; the run is not keyboard-checked.
+6. Drives the theme toggle (`scripts/cdp.mjs theme`, see `features/theme.md`): click → reload
+   persistence, `aria-pressed`, `localStorage`, no hydration warnings, 390px scroll width and a
+   JS-off load in both system themes. Also NOT VERIFIED without node 22+.
+
+The phone screenshots wait (up to 5s) for the theme toggle to unhide, i.e. for React to hydrate.
 
 Every Chrome call has a watchdog (60s per CLI call, 30s per `cdp.mjs` run) so a hung browser
 fails the run instead of hanging it, and every expected screenshot/DOM file must exist and be
@@ -96,8 +101,8 @@ JSX text expressions render a `<!-- -->` separator — keep each verbatim string
 **Dark mode:** both `--force-dark-mode` and `--blink-settings=preferredColorScheme=0` make
 `prefers-color-scheme: dark` match in headless Chrome (checked on Chrome for macOS);
 the runner uses `--force-dark-mode`. `cdp.mjs` uses `Emulation.setEmulatedMedia`.
-A page-level toggle (`data-theme`) is not a media query — drive it per `features/theme.md`
-once the styling ticket adds it.
+A page-level toggle (`data-theme`) is not a media query — `cdp.mjs theme` drives it per
+`features/theme.md` (click, reload, JS off).
 
 **No Chrome:** Drive prints `SKIP  no Chrome/Chromium found`, asserts on the served HTML with
 `check_content.py`, and takes no screenshots. Say so plainly — that is not a visual check.
@@ -111,6 +116,7 @@ Everything lands in `.fredrin/tmp/verify-app/<YYYYmmdd-HHMMSS>/` (git-ignored):
 | `SUMMARY.md` | action taken, resulting state (e.g. ".project × 4, .contact-link × 4"), side effects |
 | `desktop-{light,dark}.png`, `phone-{light,dark}.png` | screenshots |
 | `keyboard-first-tab.{png,json}` | focused element after the first Tab |
+| `theme-check.{txt,json}`, `theme-*.png` | theme toggle drive: after click, after reload, JS off light/dark |
 | `served.html`, `dom.html`, `dom-dark.html` | what the server sent / what Chrome rendered |
 | `content-check.txt`, `keyboard-check.txt` | PASS/FAIL lines |
 
@@ -168,7 +174,8 @@ The copy lives in `app/content.ts` (projects, contact links) and `app/page.tsx` 
 - `features/projects.md` — the "Shipped" list
 - `features/contact.md` — the four contact links
 - `features/footer.md` — copyright line and source link
+- `features/theme.md` — light/dark tokens, the theme toggle and the no-flash head script
 - `features/metadata.md` — `<head>` SEO/social tags, icons, share image, JSON-LD (checked by Doctor)
 
-When a change adds a feature (e.g. the styling ticket's `features/theme.md`), add its file
-here and its assertions to `check_content.py` (or a new script the runner calls).
+When a change adds a feature, add its file here and its assertions to `check_content.py`
+(or a new script the runner calls).
