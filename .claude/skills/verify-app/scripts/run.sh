@@ -180,7 +180,7 @@ write_summary() {
 - **Action:** $action.
 - **State:** $(grep -c '^PASS' "$out/content-check.txt") content checks passed, $(grep -c '^FAIL' "$out/content-check.txt") failed; $(basename "$dom") holds \`.project\` × $projects and \`.contact-link\` × $links.
 - **Keyboard:** $(cat "$out/keyboard-check.txt" 2>/dev/null || echo "not run")
-- **Theme:** $(grep -c '^PASS' "$out/theme-check.txt" 2>/dev/null || echo 0) passed, $(grep -c '^FAIL' "$out/theme-check.txt" 2>/dev/null || echo 0) failed (see theme-check.txt)
+- **Theme:** $(grep -c '^PASS' "$out/theme-check.txt" 2>/dev/null) passed, $(grep -c '^FAIL' "$out/theme-check.txt" 2>/dev/null) failed (see theme-check.txt)
 - **Side effects:** \`out/\` rebuilt and staged into \`.fredrin/tmp/site/about-me/\`; nothing else written outside \`.fredrin/tmp/\`. No requests leave the machine except the optional W3C checker POST in Doctor.
 EOF
 }
