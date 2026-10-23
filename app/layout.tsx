@@ -5,7 +5,7 @@ const title = "Ayoub Lkebch — Full-stack product engineer";
 const description =
   "Ayoub Lkebch — full-stack product engineer in Casablanca, Morocco. 4 B2B products shipped; now building Opilote, a GPS fleet-management SaaS.";
 
-// Icons and the share image come from the app/ file conventions (icon.svg, favicon.ico,
+// Icons and the share image come from the app/ file conventions (icon.svg, icon.ico,
 // apple-icon.png, opengraph-image.png, twitter-image.png + their .alt.txt files).
 export const metadata: Metadata = {
   metadataBase: new URL("https://itsandl.github.io"),
