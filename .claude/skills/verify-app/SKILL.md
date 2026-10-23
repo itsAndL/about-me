@@ -99,6 +99,15 @@ reused PID). Confirm nothing is left: `pgrep -f 'http.server'` prints nothing.
 A second `launch` while one is live refuses ("already launched — run cleanup first") instead of
 starting a second server the pid file would lose track of.
 
+## Deploy
+
+Pushes to `main` deploy via `.github/workflows/pages.yml`. After a deploy finishes, check the live site:
+
+```sh
+curl -sf https://itsandl.github.io/about-me/ | grep -q 'Ayoub Lkebch'
+curl -s -o /dev/null -w '%{http_code}\n' https://itsandl.github.io/about-me/styles.css   # expect 200
+```
+
 ## Feature map
 
 One file per feature under `features/` — selectors, expected content and the check command:
