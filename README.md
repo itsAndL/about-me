@@ -2,7 +2,7 @@
 
 One-page About Me site for Ayoub Lkebch — who Ayoub is, the B2B products shipped so far, and how to get in touch. Built with Next.js 16 + TypeScript (App Router) as a fully static export, published to GitHub Pages at https://itsandl.github.io/about-me/. No server, database or runtime env vars. Built with Fredrin.
 
-The page copy lives in `app/content.ts` (projects, contact links) and `app/page.tsx` (intro, footer). Static files such as favicons, the share image, `robots.txt` and `sitemap.xml` live in `public/`.
+The page copy lives in `app/content.ts` (projects, contact links) and `app/page.tsx` (intro, footer). SEO/social metadata is the `metadata` export in `app/layout.tsx`; the icons and share image are `app/` metadata file conventions (`icon.svg`, `icon.ico`, `apple-icon.png`, `opengraph-image.png`, `twitter-image.png`). `robots.txt` and `sitemap.xml` are static files in `public/`.
 
 ## Run locally
 

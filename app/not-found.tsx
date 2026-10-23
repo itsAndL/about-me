@@ -1,4 +1,11 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+
+// The root layout marks the home page indexable and canonical; a 404 must be neither.
+export const metadata: Metadata = {
+  robots: { index: false, follow: true },
+  alternates: { canonical: null },
+};
 
 // Exported as out/404.html, which GitHub Pages serves for unknown paths under /about-me/.
 export default function NotFound() {

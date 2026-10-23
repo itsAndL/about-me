@@ -52,8 +52,15 @@ always finish with `run.sh all`.
   scripts) — those would break under the sub-path.
 - With `--served` (what `run.sh` passes once launched): every one of those assets returns 200
   from the local server.
-- The assets moved into `public/` (`.nojekyll`, favicons, `og-image.png`, `robots.txt`,
-  `sitemap.xml`) ship in `out/`.
+- The static files in `public/` (`.nojekyll`, `robots.txt`, `sitemap.xml`) and the `app/` metadata
+  file conventions (`icon.svg`, `icon.ico`, `apple-icon.png`, `opengraph-image.png`,
+  `twitter-image.png`) ship in `out/`.
+- SEO/social metadata (see `features/metadata.md`): description, Open Graph and Twitter tags present;
+  `twitter:card` is `summary_large_image`; `theme-color` `#fbfaf7` (light) and `#111312` (dark); canonical == `og:url` ==
+  `https://itsandl.github.io/about-me/`; `og:image` / `twitter:image` are absolute under that URL and
+  resolve to 1200×630 PNGs in `out/` (and return 200 with `--served`); icon and apple-touch-icon
+  links present; exactly one JSON-LD `Person` that parses; `robots.txt` / `sitemap.xml` reference the
+  canonical URL (and return 200 with `--served`); `out/404.html` is `noindex` with no canonical.
 - No positive `tabindex` (so keyboard order is document order).
 - HTML is well-formed: a local `html.parser` pass, **and** the W3C Nu checker when reachable.
   Offline it prints `SKIP  W3C Nu checker unreachable` and relies on the local pass.
@@ -168,6 +175,7 @@ The copy lives in `app/content.ts` (projects, contact links) and `app/page.tsx` 
 - `features/contact.md` — the four contact links
 - `features/footer.md` — copyright line and source link
 - `features/theme.md` — light/dark tokens, the theme toggle and the no-flash head script
+- `features/metadata.md` — `<head>` SEO/social tags, icons, share image, JSON-LD (checked by Doctor)
 
 When a change adds a feature, add its file here and its assertions to `check_content.py`
 (or a new script the runner calls).

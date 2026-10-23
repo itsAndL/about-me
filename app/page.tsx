@@ -25,9 +25,25 @@ function ContactLabel({ link }: { link: ContactLink }) {
   );
 }
 
+const personJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "Person",
+  name: "Ayoub Lkebch",
+  jobTitle: "Full-stack product engineer",
+  address: { "@type": "PostalAddress", addressLocality: "Casablanca", addressCountry: "MA" },
+  url: "https://itsandl.github.io/about-me/",
+  email: "mailto:ayoub003lkebch@gmail.com",
+  sameAs: ["https://www.linkedin.com/in/ayoublkebch", "https://github.com/itsAndL", "https://ayoublkebch.com"],
+};
+
 export default function Home() {
   return (
     <>
+      <script
+        type="application/ld+json"
+        // Escape "<" so the JSON can never close the script element early.
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(personJsonLd).replace(/</g, "\\u003c") }}
+      />
       <header className="site-header">
         <span className="monogram">AL</span>
         <ThemeToggle />
