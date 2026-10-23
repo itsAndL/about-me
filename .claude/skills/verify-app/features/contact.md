@@ -12,6 +12,11 @@ and a `<ul>` of four `a.contact-link`, in this order.
 | 3 | `https://github.com/itsAndL` | `GitHub` | new tab |
 | 4 | `https://ayoublkebch.com` | `ayoublkebch.com` | new tab |
 
+The email and website links hold two labels: `<span class="label-long">` (the full value,
+shown above 520px) and `<span class="label-short">` (`Email` / `Website`, shown at ≤520px, where
+the links form an even 2×2 grid). Each of those two links has an `aria-label` with the full value
+(`Email ayoub003lkebch@gmail.com`, `Website ayoublkebch.com (opens in a new tab)`).
+
 New-tab links carry `target="_blank" rel="noopener noreferrer"` and a visually hidden
 " (opens in a new tab)".
 

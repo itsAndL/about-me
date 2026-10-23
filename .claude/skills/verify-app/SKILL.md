@@ -5,7 +5,7 @@ description: Launch, check, drive and screenshot the About Me static site (index
 
 # verify-app
 
-The site is one static page (`index.html` + `styles.css`) with no build step, published under
+The site is one static page (`index.html` + `styles.css` + `theme.js`) with no build step, published under
 the GitHub Pages sub-path `/about-me/`. This skill serves the repo exactly as Pages would serve
 it, checks it, drives it in headless Chrome and keeps the evidence.
 
@@ -53,11 +53,15 @@ Chrome: `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`, else `go
    over the DevTools protocol and captures the full page. Without node 22+ it falls back to loading
    the page in a 390px `<iframe>` (wrapper written to `.fredrin/tmp/verify-app-frame/phone.html`)
    inside a 500px window — the right 110px of those images is wrapper background.
+   The phone run also asserts `document.documentElement.scrollWidth <= 390` (no sideways scroll).
 4. Asserts content with `scripts/check_content.py dom.html` — every feature in the map below,
    plus all 9 external/mailto URLs in order and their `target`/`rel`.
 5. Presses a real **Tab** key once (`scripts/cdp.mjs tab`) and asserts focus lands on a visible
    `Skip to content` link to `#main`; saves `keyboard-first-tab.png` of the focused state.
    Without node 22+ this is reported as NOT VERIFIED — say so; the run is not keyboard-checked.
+6. Clicks the theme toggle and reloads (`scripts/cdp.mjs theme`), then loads the page with
+   JavaScript disabled under a dark system theme (`scripts/cdp.mjs nojs`) — see
+   `features/theme.md`. Results go to `theme-check.txt`; NOT VERIFIED without node 22+.
 
 Every Chrome call has a watchdog (60s per CLI call, 30s per `cdp.mjs` run) so a hung browser
 fails the run instead of hanging it, and every expected screenshot/DOM file must exist and be
@@ -66,8 +70,9 @@ non-empty or Drive fails.
 **Dark mode:** both `--force-dark-mode` and `--blink-settings=preferredColorScheme=0` make
 `prefers-color-scheme: dark` match in headless Chrome (checked on Chrome for macOS);
 the runner uses `--force-dark-mode`. `cdp.mjs` uses `Emulation.setEmulatedMedia`.
-A page-level toggle (`data-theme`) is not a media query — drive it per `features/theme.md`
-once the styling ticket adds it.
+A page-level toggle (`data-theme`) is not a media query — drive it per `features/theme.md`.
+To screenshot the pinned dark theme by hand, run `cdp.mjs theme` (it saves `theme-toggle.png`
+after the reload), or set `localStorage.theme = "dark"` over CDP and reload.
 
 **No Chrome:** Drive prints `SKIP  no Chrome/Chromium found`, asserts on the served HTML with
 `check_content.py`, and takes no screenshots. Say so plainly — that is not a visual check.
@@ -81,8 +86,10 @@ Everything lands in `.fredrin/tmp/verify-app/<YYYYmmdd-HHMMSS>/` (git-ignored):
 | `SUMMARY.md` | action taken, resulting state (e.g. ".project × 4, .contact-link × 4"), side effects |
 | `desktop-{light,dark}.png`, `phone-{light,dark}.png` | screenshots |
 | `keyboard-first-tab.{png,json}` | focused element after the first Tab |
+| `theme-toggle.{png,json}` | state before the click, after it, and after the reload |
+| `nojs-dark.{png,json}` | full render with JavaScript disabled, dark system theme |
 | `served.html`, `dom.html`, `dom-dark.html` | what the server sent / what Chrome rendered |
-| `content-check.txt`, `keyboard-check.txt` | PASS/FAIL lines |
+| `content-check.txt`, `keyboard-check.txt`, `theme-check.txt` | PASS/FAIL lines |
 
 Side effects: none expected — static site, nothing written outside `.fredrin/tmp/`. The only
 outbound request is Doctor's optional POST of `index.html` to the W3C checker.
@@ -107,6 +114,7 @@ One file per feature under `features/` — selectors, expected content and the c
 - `features/projects.md` — the "Shipped" list
 - `features/contact.md` — the four contact links
 - `features/footer.md` — copyright line and source link
+- `features/theme.md` — light/dark theme, the toggle and the no-flash script
 
-When a change adds a feature (e.g. the styling ticket's `features/theme.md`), add its file
+When a change adds a feature, add its file
 here and its assertions to `check_content.py` (or a new script the runner calls).

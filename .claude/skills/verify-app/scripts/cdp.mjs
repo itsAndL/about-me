@@ -7,15 +7,22 @@
 //     when focus lands on a visible "Skip to content" link pointing at #main.
 //   node cdp.mjs phone <chrome> <url> <out.png> [light|dark]
 //     Emulate a 390px-wide phone viewport (headless windows cannot go below ~500px)
-//     and save a full-page screenshot.
+//     and save a full-page screenshot. Fails if the page scrolls sideways at 390px.
+//   node cdp.mjs theme <chrome> <url> <out-dir>
+//     Under a light system theme: click .theme-toggle, reload, and assert the saved dark
+//     theme is applied before first paint; write theme-toggle.{png,json}.
+//   node cdp.mjs nojs  <chrome> <url> <out-dir>
+//     With JavaScript disabled and a dark system theme: assert the page renders, follows
+//     the system theme and keeps the toggle hidden; write nojs-dark.{png,json}.
+//     (`--blink-settings=scriptEnabled=false` breaks headless --screenshot/--dump-dom.)
 import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const [mode, chrome, url, out, scheme = "light"] = process.argv.slice(2);
-if (!["tab", "phone"].includes(mode) || !chrome || !url || !out) {
-  console.error("usage: node cdp.mjs tab <chrome> <url> <out-dir> | phone <chrome> <url> <out.png> [light|dark]");
+if (!["tab", "phone", "theme", "nojs"].includes(mode) || !chrome || !url || !out) {
+  console.error("usage: node cdp.mjs tab|theme|nojs <chrome> <url> <out-dir> | phone <chrome> <url> <out.png> [light|dark]");
   process.exit(2);
 }
 
@@ -109,7 +116,82 @@ async function phone(cdp) {
     clip: await fullPage(cdp) });
   writeFileSync(out, Buffer.from(shot.data, "base64"));
   console.log(`PASS  phone screenshot (390px, ${scheme}) → ${out}`);
-  return true;
+  const { result } = await cdp.send("Runtime.evaluate", {
+    returnByValue: true, expression: "document.documentElement.scrollWidth",
+  });
+  const fits = result.value <= 390;
+  console.log(`${fits ? "PASS" : "FAIL"}  phone (${scheme}) scrollWidth ${result.value} <= 390`);
+  return fits;
+}
+
+async function theme(cdp) {
+  await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "light" }] });
+  // Record data-theme the moment the stylesheet <link> is parsed, i.e. before first paint.
+  await cdp.send("Page.addScriptToEvaluateOnNewDocument", { source: `
+    new MutationObserver((_, obs) => {
+      if (document.querySelector('link[rel="stylesheet"]')) {
+        window.__themeAtStylesheet = document.documentElement.getAttribute("data-theme");
+        obs.disconnect();
+      }
+    }).observe(document, { childList: true, subtree: true });` });
+  await open(cdp, url);
+  const state = async () => (await cdp.send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const b = document.querySelector(".theme-toggle");
+      return { dataTheme: document.documentElement.getAttribute("data-theme"),
+               ariaPressed: b && b.getAttribute("aria-pressed"), hidden: b ? b.hidden : null,
+               stored: localStorage.getItem("theme"), themeAtStylesheet: window.__themeAtStylesheet ?? null,
+               bg: getComputedStyle(document.body).backgroundColor };
+    })()`,
+  })).result.value;
+  const before = await state();
+  const { result } = await cdp.send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => { const r = document.querySelector(".theme-toggle").getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`,
+  });
+  for (const type of ["mousePressed", "mouseReleased"]) {
+    await cdp.send("Input.dispatchMouseEvent", { type, x: result.value.x, y: result.value.y, button: "left", clickCount: 1 });
+  }
+  const clicked = await state();
+  await open(cdp, url);
+  const reloaded = await state();
+  const pass = before.dataTheme === null && before.ariaPressed === "false" && before.hidden === false
+    && clicked.dataTheme === "dark" && clicked.stored === "dark"
+    && reloaded.dataTheme === "dark" && reloaded.ariaPressed === "true"
+    && reloaded.themeAtStylesheet === "dark" && reloaded.bg === "rgb(17, 19, 18)";
+  const shot = await cdp.send("Page.captureScreenshot", { format: "png" });
+  writeFileSync(join(out, "theme-toggle.png"), Buffer.from(shot.data, "base64"));
+  writeFileSync(join(out, "theme-toggle.json"), JSON.stringify({ action: "click .theme-toggle, reload", before, clicked, reloaded, pass }, null, 2));
+  console.log(`${pass ? "PASS" : "FAIL"}  theme toggle: before ${JSON.stringify(before)} → after reload ${JSON.stringify(reloaded)}`);
+  return pass;
+}
+
+async function nojs(cdp) {
+  await cdp.send("Emulation.setScriptExecutionDisabled", { value: true });
+  await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] });
+  await open(cdp, url);
+  const { result } = await cdp.send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const b = document.querySelector(".theme-toggle");
+      return { dataTheme: document.documentElement.getAttribute("data-theme"),
+               toggleHidden: !!b && b.hidden && getComputedStyle(b).display === "none",
+               bg: getComputedStyle(document.body).backgroundColor,
+               projects: document.querySelectorAll(".project").length,
+               contactLinks: document.querySelectorAll(".contact-link").length };
+    })()`,
+  });
+  const s = result.value;
+  const pass = s.dataTheme === null && s.toggleHidden && s.bg === "rgb(17, 19, 18)"
+    && s.projects === 4 && s.contactLinks === 4;
+  const shot = await cdp.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true,
+    clip: { ...(await fullPage(cdp)), width: 1280 } });
+  writeFileSync(join(out, "nojs-dark.png"), Buffer.from(shot.data, "base64"));
+  writeFileSync(join(out, "nojs-dark.json"), JSON.stringify({ action: "load with JS disabled, dark system theme", state: s, pass }, null, 2));
+  console.log(`${pass ? "PASS" : "FAIL"}  JS off (dark system): ${JSON.stringify(s)}`);
+  return pass;
 }
 
 async function fullPage(cdp) {
@@ -126,7 +208,7 @@ try {
     const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
     const cdp = await connect(targets.find((t) => t.type === "page").webSocketDebuggerUrl);
     try {
-      return mode === "tab" ? await firstTab(cdp) : await phone(cdp);
+      return await ({ tab: firstTab, phone, theme, nojs })[mode](cdp);
     } finally {
       cdp.close();
     }
