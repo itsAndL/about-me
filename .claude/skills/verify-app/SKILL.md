@@ -132,13 +132,31 @@ instead of starting a second server the pid file would lose track of.
 
 ## Deploy
 
-Pushes to `main` run `.github/workflows/pages.yml`: `npm ci` → `npm run build` → upload `out/` →
-deploy. After a deploy finishes, check the live site:
+Pull requests and pushes to other branches run `.github/workflows/ci.yml`: `npm ci` → `npm run lint`
+→ `npx tsc --noEmit` → `npm run build` → smoke test. Pushes to `main` run
+`.github/workflows/pages.yml`: `npm ci` → `npm run build` → smoke test → upload `out/` → deploy.
+The smoke test (same in both) is:
 
 ```sh
-curl -sf https://itsandl.github.io/about-me/ | grep -q 'Ayoub Lkebch'
-asset=$(curl -sf https://itsandl.github.io/about-me/ | grep -oE '/about-me/_next/[^"]+\.css' | head -1)
-curl -s -o /dev/null -w '%{http_code}\n' "https://itsandl.github.io$asset"   # expect 200
+test -f out/index.html && test -f out/404.html && grep -q 'Ayoub Lkebch' out/index.html && ! grep -q '"/_next/' out/index.html
+```
+
+`app/not-found.tsx` exports to `out/404.html`. Pages serves it for any unknown path under
+`/about-me/`; the local `http.server` does not (it returns its own 404), so locally check the page
+itself at `http://127.0.0.1:<port>/about-me/404.html`.
+
+After a deploy finishes, check the live site — all three must pass:
+
+```sh
+base=https://itsandl.github.io/about-me/
+# 1. The page is live with its content.
+curl -sf "$base" | grep -q 'Ayoub Lkebch'
+# 2. A _next asset from that HTML returns 200 (the base path is right).
+asset=$(curl -sf "$base" | grep -oE '/about-me/_next/[^"]+\.css' | head -1)
+curl -s -o /dev/null -w '%{http_code}\n' "https://itsandl.github.io$asset"     # expect 200
+# 3. An unknown path returns 404 with the custom page.
+curl -s -o /dev/null -w '%{http_code}\n' "${base}does-not-exist"               # expect 404
+curl -s "${base}does-not-exist" | grep -q 'Page not found'
 ```
 
 ## Feature map
