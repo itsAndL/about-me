@@ -1,4 +1,5 @@
-import { contactLinks, projects, sourceUrl } from "./content";
+import { type ContactLink, contactLinks, projects, sourceUrl } from "./content";
+import { ThemeToggle } from "./theme-toggle";
 
 function NewTabNote() {
   return <span className="visually-hidden"> (opens in a new tab)</span>;
@@ -6,11 +7,30 @@ function NewTabNote() {
 
 const newTab = { target: "_blank", rel: "noopener noreferrer" } as const;
 
+// Phones show the short label, wider screens the long one; only one renders per breakpoint.
+function ContactLabel({ link }: { link: ContactLink }) {
+  if (!link.shortLabel) return link.label;
+  return (
+    <>
+      <span className="label-long">
+        {link.icon && (
+          <span className="contact-icon" aria-hidden="true">
+            {link.icon}
+          </span>
+        )}
+        {link.label}
+      </span>
+      <span className="label-short">{link.shortLabel}</span>
+    </>
+  );
+}
+
 export default function Home() {
   return (
     <>
       <header className="site-header">
         <span className="monogram">AL</span>
+        <ThemeToggle />
       </header>
 
       <main id="main">
@@ -50,22 +70,20 @@ export default function Home() {
         <section className="contact" aria-labelledby="contact-heading">
           <h2 id="contact-heading">Contact</h2>
           <ul>
-            {contactLinks.map((link) =>
-              link.href.startsWith("mailto:") ? (
+            {contactLinks.map((link) => {
+              const opensNewTab = !link.href.startsWith("mailto:");
+              // aria-label replaces the link's text, so it repeats the new-tab note itself.
+              const ariaLabel =
+                link.ariaLabel && (opensNewTab ? `${link.ariaLabel} (opens in a new tab)` : link.ariaLabel);
+              return (
                 <li key={link.href}>
-                  <a className="contact-link" href={link.href}>
-                    {link.label}
+                  <a className="contact-link" href={link.href} aria-label={ariaLabel} {...(opensNewTab ? newTab : {})}>
+                    <ContactLabel link={link} />
+                    {opensNewTab && <NewTabNote />}
                   </a>
                 </li>
-              ) : (
-                <li key={link.href}>
-                  <a className="contact-link" href={link.href} {...newTab}>
-                    {link.label}
-                    <NewTabNote />
-                  </a>
-                </li>
-              ),
-            )}
+              );
+            })}
           </ul>
         </section>
       </main>

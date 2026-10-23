@@ -141,10 +141,12 @@ drive() {
       node "$SKILL/scripts/cdp.mjs" phone "$chrome" "$url" "$out/phone-$scheme.png" "$scheme" || status=1
     done
     node "$SKILL/scripts/cdp.mjs" tab "$chrome" "$url" "$out" | tee "$out/keyboard-check.txt" || status=1
-    how="$how; phone 390px via DevTools emulation, light and dark; pressed Tab once"
+    node "$SKILL/scripts/cdp.mjs" theme "$chrome" "$url" "$out" | tee "$out/theme-check.txt" || status=1
+    how="$how; phone 390px via DevTools emulation, light and dark; pressed Tab once; clicked the theme toggle, reloaded, loaded with JS off"
   else
     echo "NOTE  node 22+ not found — phone view uses the iframe wrapper; keyboard (first Tab) NOT verified"
     echo "NOT VERIFIED — needs node 22+ for the real Tab key press" >"$out/keyboard-check.txt"
+    echo "NOT VERIFIED — needs node 22+ to drive the theme toggle" >"$out/theme-check.txt"
     how="$how; phone via 390px iframe in a 500px window, light and dark; keyboard not checked (no node 22+)"
     local frame_dir="$SITE/verify-app-frame"
     mkdir -p "$frame_dir"
@@ -178,6 +180,7 @@ write_summary() {
 - **Action:** $action.
 - **State:** $(grep -c '^PASS' "$out/content-check.txt") content checks passed, $(grep -c '^FAIL' "$out/content-check.txt") failed; $(basename "$dom") holds \`.project\` × $projects and \`.contact-link\` × $links.
 - **Keyboard:** $(cat "$out/keyboard-check.txt" 2>/dev/null || echo "not run")
+- **Theme:** $(grep -c '^PASS' "$out/theme-check.txt" 2>/dev/null || echo 0) passed, $(grep -c '^FAIL' "$out/theme-check.txt" 2>/dev/null || echo 0) failed (see theme-check.txt)
 - **Side effects:** \`out/\` rebuilt and staged into \`.fredrin/tmp/site/about-me/\`; nothing else written outside \`.fredrin/tmp/\`. No requests leave the machine except the optional W3C checker POST in Doctor.
 EOF
 }

@@ -8,14 +8,18 @@
 //   node cdp.mjs phone <chrome> <url> <out.png> [light|dark]
 //     Emulate a 390px-wide phone viewport (headless windows cannot go below ~500px)
 //     and save a full-page screenshot.
+//   node cdp.mjs theme <chrome> <url> <out-dir>
+//     Drive the theme toggle (features/theme.md): click it, reload, check data-theme,
+//     aria-pressed and localStorage, the 390px scroll width, hydration warnings and a
+//     JS-off load. Writes theme-check.json and theme-*.png.
 import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const [mode, chrome, url, out, scheme = "light"] = process.argv.slice(2);
-if (!["tab", "phone"].includes(mode) || !chrome || !url || !out) {
-  console.error("usage: node cdp.mjs tab <chrome> <url> <out-dir> | phone <chrome> <url> <out.png> [light|dark]");
+if (!["tab", "phone", "theme"].includes(mode) || !chrome || !url || !out) {
+  console.error("usage: node cdp.mjs tab|theme <chrome> <url> <out-dir> | phone <chrome> <url> <out.png> [light|dark]");
   process.exit(2);
 }
 
@@ -63,8 +67,15 @@ function connect(wsUrl) {
     ws.send(JSON.stringify({ id, method, params }));
   });
   const once = (method) => new Promise((resolve) => waiters.push({ method, resolve }));
+  const events = [];
+  const record = ws.onmessage;
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.method === "Runtime.consoleAPICalled" || msg.method === "Log.entryAdded") events.push(msg);
+    record(e);
+  };
   return new Promise((resolve, reject) => {
-    ws.onopen = () => resolve({ send, once, close: () => ws.close() });
+    ws.onopen = () => resolve({ send, once, events, close: () => ws.close() });
     ws.onerror = () => reject(new Error(`cannot open ${wsUrl}`));
   });
 }
@@ -74,6 +85,18 @@ async function open(cdp, target) {
   const loaded = cdp.once("Page.loadEventFired");
   await cdp.send("Page.navigate", { url: target });
   await loaded;
+}
+
+const evaluate = async (cdp, expression) =>
+  (await cdp.send("Runtime.evaluate", { returnByValue: true, expression })).result.value;
+
+// The theme toggle renders hidden until React hydrates; wait for it (or give up after 5s).
+async function hydrated(cdp) {
+  for (let i = 0; i < 50; i++) {
+    if (await evaluate(cdp, `!!document.querySelector(".theme-toggle:not([hidden])")`)) return true;
+    await sleep(100);
+  }
+  return false;
 }
 
 async function firstTab(cdp) {
@@ -106,11 +129,94 @@ async function phone(cdp) {
   await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: scheme }] });
   await open(cdp, url);
+  await hydrated(cdp);
   const shot = await cdp.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true,
     clip: await fullPage(cdp) });
   writeFileSync(out, Buffer.from(shot.data, "base64"));
   console.log(`PASS  phone screenshot (390px, ${scheme}) → ${out}`);
   return true;
+}
+
+async function theme(cdp) {
+  const results = [];
+  const check = (name, pass, detail) => {
+    results.push({ name, pass, detail });
+    console.log(`${pass ? "PASS" : "FAIL"}  ${name} ${JSON.stringify(detail)}`);
+  };
+  const state = () => evaluate(cdp, `(() => {
+    const b = document.querySelector(".theme-toggle");
+    let stored = null;
+    try { stored = localStorage.getItem("theme"); } catch {}
+    return { dataTheme: document.documentElement.dataset.theme ?? null, stored,
+             ariaPressed: b && b.getAttribute("aria-pressed"), name: b && b.getAttribute("aria-label"),
+             hidden: !b || b.hidden || b.getBoundingClientRect().width === 0,
+             bg: getComputedStyle(document.body).backgroundColor };
+  })()`);
+  const shot = async (name) => {
+    const { data } = await cdp.send("Page.captureScreenshot", { format: "png" });
+    writeFileSync(join(out, name), Buffer.from(data, "base64"));
+  };
+
+  await cdp.send("Runtime.enable");
+  await cdp.send("Log.enable");
+  await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "light" }] });
+  await open(cdp, url);
+  await evaluate(cdp, `localStorage.removeItem("theme")`);
+  await open(cdp, url);
+  check("toggle visible once hydrated", await hydrated(cdp), {});
+  const before = await state();
+  check("system light: no data-theme, aria-pressed=false", before.dataTheme === null && before.ariaPressed === "false", before);
+
+  // A real mouse click at the button's centre.
+  const box = await evaluate(cdp, `(() => { const r = document.querySelector(".theme-toggle").getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
+  for (const type of ["mousePressed", "mouseReleased"]) {
+    await cdp.send("Input.dispatchMouseEvent", { type, x: box.x, y: box.y, button: "left", clickCount: 1 });
+  }
+  await sleep(200);
+  const clicked = await state();
+  check("click → data-theme=dark, aria-pressed=true, localStorage.theme=dark",
+    clicked.dataTheme === "dark" && clicked.ariaPressed === "true" && clicked.stored === "dark", clicked);
+  await shot("theme-after-click.png");
+
+  cdp.events.length = 0;
+  await open(cdp, url);
+  // Read <html> before hydration settles: the head script must already have set it.
+  const early = await evaluate(cdp, `document.documentElement.dataset.theme ?? null`);
+  await hydrated(cdp);
+  const reloaded = await state();
+  check("reload keeps data-theme=dark with aria-pressed=true",
+    early === "dark" && reloaded.dataTheme === "dark" && reloaded.ariaPressed === "true", { early, ...reloaded });
+  await shot("theme-after-reload.png");
+  const texts = cdp.events.map((e) => e.params.entry?.text
+    ?? (e.params.args || []).map((a) => a.value ?? a.description ?? "").join(" "));
+  const hydration = texts.filter((t) => /hydrat/i.test(t));
+  check("no hydration warnings in the console", hydration.length === 0, { console: texts });
+
+  await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+  await open(cdp, url);
+  const scrollWidth = await evaluate(cdp, `document.documentElement.scrollWidth`);
+  check("390px: scrollWidth <= 390", scrollWidth <= 390, { scrollWidth });
+  await cdp.send("Emulation.clearDeviceMetricsOverride");
+  await evaluate(cdp, `localStorage.removeItem("theme")`);
+
+  // JS off: the page must render in full, follow the system theme and show no toggle.
+  await cdp.send("Emulation.setScriptExecutionDisabled", { value: true });
+  for (const scheme of ["light", "dark"]) {
+    await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: scheme }] });
+    await open(cdp, url);
+    const s = await state();
+    const projects = await evaluate(cdp, `document.querySelectorAll(".project").length`);
+    const want = scheme === "dark" ? "rgb(17, 19, 18)" : "rgb(251, 250, 247)";
+    check(`JS off, system ${scheme}: full page, ${want} background, toggle hidden`,
+      projects === 4 && s.bg === want && s.hidden, { projects, ...s });
+    await shot(`theme-js-off-${scheme}.png`);
+  }
+  await cdp.send("Emulation.setScriptExecutionDisabled", { value: false });
+
+  const pass = results.every((r) => r.pass);
+  writeFileSync(join(out, "theme-check.json"), JSON.stringify({ pass, results }, null, 2));
+  return pass;
 }
 
 async function fullPage(cdp) {
@@ -127,7 +233,7 @@ try {
     const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
     const cdp = await connect(targets.find((t) => t.type === "page").webSocketDebuggerUrl);
     try {
-      return mode === "tab" ? await firstTab(cdp) : await phone(cdp);
+      return mode === "tab" ? await firstTab(cdp) : mode === "theme" ? await theme(cdp) : await phone(cdp);
     } finally {
       cdp.close();
     }
