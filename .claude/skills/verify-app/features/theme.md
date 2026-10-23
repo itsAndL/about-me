@@ -26,7 +26,7 @@ node .claude/skills/verify-app/scripts/cdp.mjs nojs  "<chrome>" http://127.0.0.1
 `theme` emulates a light system theme, clicks the toggle with a real mouse event, reloads and
 asserts `data-theme="dark"`, `aria-pressed="true"`, `localStorage['theme'] === "dark"`, a dark
 body background, and that `data-theme` was already `dark` when the stylesheet `<link>` was
-parsed (no light flash). Writes `theme-toggle.{png,json}`.
+parsed — i.e. set before any styled paint, which is what rules out a light flash. Writes `theme-toggle.{png,json}`.
 
 `nojs` disables JavaScript over the DevTools protocol (`Emulation.setScriptExecutionDisabled`),
 emulates a dark system theme and asserts the toggle is hidden, no `data-theme` is set, the body

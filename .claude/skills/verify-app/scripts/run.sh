@@ -101,7 +101,7 @@ drive() {
   local how="headless Chrome ($chrome): DOM dump and desktop 1280×1400, light and dark"
   if node_ok; then
     for scheme in light dark; do
-      node "$SKILL/scripts/cdp.mjs" phone "$chrome" "$url" "$out/phone-$scheme.png" "$scheme" || status=1
+      node "$SKILL/scripts/cdp.mjs" phone "$chrome" "$url" "$out/phone-$scheme.png" "$scheme" | tee -a "$out/phone-check.txt" || status=1
     done
     node "$SKILL/scripts/cdp.mjs" tab "$chrome" "$url" "$out" | tee "$out/keyboard-check.txt" || status=1
     node "$SKILL/scripts/cdp.mjs" theme "$chrome" "$url" "$out" | tee "$out/theme-check.txt" || status=1
@@ -143,6 +143,7 @@ write_summary() {
 
 - **Action:** $action.
 - **State:** $(grep -c '^PASS' "$out/content-check.txt") content checks passed, $(grep -c '^FAIL' "$out/content-check.txt") failed; $(basename "$dom") holds \`.project\` × $projects and \`.contact-link\` × $links.
+- **Phone:** $(grep scrollWidth "$out/phone-check.txt" 2>/dev/null | tr '\n' ' ' || echo "not run")
 - **Keyboard:** $(cat "$out/keyboard-check.txt" 2>/dev/null || echo "not run")
 - **Theme:** $(cat "$out/theme-check.txt" 2>/dev/null || echo "not run")
 - **Side effects:** none expected (static site; no requests leave the machine except the optional W3C checker POST in Doctor).

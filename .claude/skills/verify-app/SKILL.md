@@ -94,7 +94,7 @@ Everything lands in `.fredrin/tmp/verify-app/<YYYYmmdd-HHMMSS>/` (git-ignored):
 | `theme-toggle.{png,json}` | state before the click, after it, and after the reload |
 | `nojs-dark.{png,json}` | full render with JavaScript disabled, dark system theme |
 | `served.html`, `dom.html`, `dom-dark.html` | what the server sent / what Chrome rendered |
-| `content-check.txt`, `keyboard-check.txt`, `theme-check.txt` | PASS/FAIL lines |
+| `content-check.txt`, `phone-check.txt`, `keyboard-check.txt`, `theme-check.txt` | PASS/FAIL lines |
 
 Side effects: none expected — static site, nothing written outside `.fredrin/tmp/`. The only
 outbound request is Doctor's optional POST of `index.html` to the W3C checker.

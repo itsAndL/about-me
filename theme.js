@@ -26,6 +26,7 @@
   });
 
   if (system.addEventListener) system.addEventListener("change", sync);
+  else if (system.addListener) system.addListener(sync);
   sync();
   button.hidden = false;
 })();
