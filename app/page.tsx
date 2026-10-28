@@ -32,7 +32,7 @@ const personJsonLd = {
   jobTitle: "Full-stack product engineer",
   address: { "@type": "PostalAddress", addressLocality: "Casablanca", addressCountry: "MA" },
   url: "https://itsandl.github.io/about-me/",
-  email: "mailto:ayoub003lkebch@gmail.com",
+  email: "mailto:lkebch.ayoub@gmail.com",
   sameAs: ["https://www.linkedin.com/in/ayoublkebch", "https://github.com/itsAndL", "https://ayoublkebch.com"],
 };
 

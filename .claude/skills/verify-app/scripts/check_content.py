@@ -17,7 +17,7 @@ PROJECT_URLS = [
     "https://humaneo.ma",
 ]
 CONTACT_URLS = [
-    "mailto:ayoub003lkebch@gmail.com",
+    "mailto:lkebch.ayoub@gmail.com",
     "https://www.linkedin.com/in/ayoublkebch",
     "https://github.com/itsAndL",
     "https://ayoublkebch.com",
@@ -52,7 +52,7 @@ FEATURES = {
     "contact": {
         "strings": [
             '<h2 id="contact-heading">Contact</h2>',
-            ">ayoub003lkebch@gmail.com<", ">LinkedIn<", ">GitHub<", ">ayoublkebch.com<",
+            ">lkebch.ayoub@gmail.com<", ">LinkedIn<", ">GitHub<", ">ayoublkebch.com<",
         ],
         "counts": {"contact": 1, "contact-link": 4},
         "links": ("contact-link", CONTACT_URLS),

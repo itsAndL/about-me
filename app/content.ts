@@ -53,10 +53,10 @@ export const projects: Project[] = [
 // The mailto link opens in the same tab; every other link opens a new one.
 export const contactLinks: ContactLink[] = [
   {
-    href: "mailto:ayoub003lkebch@gmail.com",
-    label: "ayoub003lkebch@gmail.com",
+    href: "mailto:lkebch.ayoub@gmail.com",
+    label: "lkebch.ayoub@gmail.com",
     shortLabel: "Email",
-    ariaLabel: "Email ayoub003lkebch@gmail.com",
+    ariaLabel: "Email lkebch.ayoub@gmail.com",
     icon: "✉",
   },
   { href: "https://www.linkedin.com/in/ayoublkebch", label: "LinkedIn" },
